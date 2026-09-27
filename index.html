@@ -14,7 +14,7 @@
 html,body{width:100%;height:100%;background:var(--bg);overflow:hidden}
 body{color:var(--grey);font:18px/1.34 var(--font);-webkit-font-smoothing:antialiased}
 /* designed for 1920×1080; scaled to fit whatever screen it lands on */
-#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;padding:64px 88px}
+#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;padding:84px 140px 0 140px}
 .k{color:var(--mint)} .t{color:var(--teal)} .d{color:var(--dim)} .g{color:var(--grey)}
 .prompt{font-size:19px;margin-bottom:26px}
 .prompt .path{color:var(--teal)} .prompt .arrow{color:var(--mint)}
@@ -51,19 +51,21 @@ h3 b{color:var(--teal);font-weight:400}
 .proc td.n{color:var(--grey);max-width:300px;overflow:hidden;text-overflow:ellipsis}
 .proc td.c{color:var(--mint);text-align:right;width:80px}
 .proc td.m{color:var(--teal);text-align:right;width:110px}
-.clock{position:absolute;right:88px;top:52px;text-align:right}
-.clock .time{font-size:84px;line-height:1;color:var(--mint);font-weight:300;letter-spacing:-2px}
-.clock .date{font-size:19px;color:var(--teal);margin-top:6px;letter-spacing:.12em;text-transform:lowercase}
-.status{position:absolute;left:88px;bottom:46px;font-size:15px;color:var(--dim)}
+.clock{position:absolute;right:150px;top:440px;text-align:right}
+.clock pre.time{font:inherit;font-size:15px;line-height:1;color:var(--mint);white-space:pre;letter-spacing:0}
+.clock pre.time .c{color:var(--teal)}
+.clock .date{font-size:18px;color:var(--teal);margin-top:14px;letter-spacing:.14em;text-transform:lowercase}
+.clock .sec{font-size:15px;color:var(--dim);margin-top:2px}
+.status{position:absolute;left:140px;bottom:92px;font-size:15px;color:var(--dim)}
 .status .ok{color:var(--teal)} .status .bad{color:var(--mint)}
-.now{position:absolute;right:88px;bottom:46px;font-size:16px;text-align:right;max-width:760px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now{font-size:16px;text-align:right;max-width:560px;margin-top:22px;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
 <div id="stage">
   <div class="prompt"><span class="t">PS</span> <span class="path">C:\Users\<span id="p-user">panto</span></span><span class="arrow">&gt;</span> fastfetch --live <span class="cursor"></span></div>
 
-  <div class="clock"><div class="time" id="time">--:--</div><div class="date" id="date"></div></div>
+  <div class="clock"><pre class="time" id="time"></pre><div class="date" id="date"></div><div class="sec" id="sec"></div><div class="now" id="now"></div></div>
 
   <div class="top">
 <pre class="logo" id="logo"></pre>
@@ -91,7 +93,6 @@ h3 b{color:var(--teal);font-weight:400}
   </div>
 
   <div class="status" id="status">connecting to termwall api…</div>
-  <div class="now" id="now"></div>
 </div>
 
 <script>
@@ -141,12 +142,10 @@ function render(s){
     row("", `${bar(s.cpu)} <span class="pct">${s.cpu.toFixed(0)}%</span>`),
     g ? row("GPU", `${esc(g.name)} · ${g.temp ?? "-"}°C · ${g.power != null ? g.power.toFixed(0)+" W" : ""}`) : row("GPU", "-"),
     g ? row("", `${bar(g.util ?? 0)} <span class="pct">${(g.util ?? 0).toFixed(0)}%</span>  <span class="d">vram</span> ${(g.vram_used/1024).toFixed(1)} / ${(g.vram_total/1024).toFixed(0)} GiB`) : "",
-    row("Memory", `${gib(s.ram.used)} / ${gib(s.ram.total)} <span class="pct">(${s.ram.percent.toFixed(0)}%)</span>`),
+    row("Memory", `${gib(s.ram.used)} / ${gib(s.ram.total)} <span class="pct">(${s.ram.percent.toFixed(0)}%)</span>  <span class="d">swap</span> ${gib(s.swap.used)}`),
     row("", bar(s.ram.percent)),
-    row("Swap", `${gib(s.swap.used)} / ${gib(s.swap.total)} (${s.swap.percent.toFixed(0)}%)`),
     ...s.disks.map(d => row(`Disk (${esc(d.mount)})`, `${bar(d.percent, 12)} ${gib(d.used)} / ${gib(d.total)} <span class="d">${esc(d.fs)}</span>`)),
-    row("Network", `<span class="k">↓</span> ${rate(s.net.down)}  <span class="t">↑</span> ${rate(s.net.up)}`),
-    row("Local IP", esc(s.local_ip)),
+    row("Network", `<span class="k">↓</span> ${rate(s.net.down)}  <span class="t">↑</span> ${rate(s.net.up)}  <span class="d">·</span> ${esc(s.local_ip)}`),
   ];
   $("rows").innerHTML = rows.join("");
 
@@ -176,9 +175,29 @@ async function poll(){
 }
 setInterval(poll, 1000); poll();
 
+const DIGITS = {
+  "0":["111","101","101","101","111"], "1":["010","110","010","010","111"],
+  "2":["111","001","111","100","111"], "3":["111","001","111","001","111"],
+  "4":["101","101","111","001","001"], "5":["111","100","111","001","111"],
+  "6":["111","100","111","101","111"], "7":["111","001","010","010","010"],
+  "8":["111","101","111","101","111"], "9":["111","101","111","001","111"],
+  ":":["0","1","0","1","0"] };
+// tty-clock style: each lit cell is two full blocks
+function bigText(str){
+  const rows = ["","","","",""];
+  for (const ch of str) {
+    const g = DIGITS[ch]; if (!g) continue;
+    for (let r = 0; r < 5; r++) {
+      const cells = g[r].split("").map(b => b === "1" ? "██" : "  ").join("");
+      rows[r] += (ch === ":" ? `<span class="c">${cells}</span>` : cells) + "  ";
+    }
+  }
+  return rows.map(r => r.replace(/\s+$/, "")).join("\n");
+}
 function tick(){ const n = new Date();
-  $("time").textContent = n.toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit"});
-  $("date").textContent = n.toLocaleDateString("en-GB", {weekday:"long", day:"numeric", month:"long"}); }
+  $("time").innerHTML = bigText(n.toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit"}));
+  $("date").textContent = n.toLocaleDateString("en-GB", {weekday:"long", day:"numeric", month:"long"});
+  $("sec").textContent = ":" + String(n.getSeconds()).padStart(2, "0"); }
 setInterval(tick, 1000); tick();
 
 // Wallpaper Engine: currently playing track (only exists inside WE, harmless elsewhere)
