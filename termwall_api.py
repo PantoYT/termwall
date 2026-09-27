@@ -32,6 +32,36 @@ import psutil
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+# Optional palette written by an external switcher (e.g. rice). The page swaps its
+# CSS variables when this changes — no wallpaper reload.
+THEME_FILE = os.environ.get("TERMWALL_THEME") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "theme.json")
+THEME_KEYS = ("bg", "accent", "secondary", "text", "dim", "faint")
+
+
+def valid_theme(t) -> bool:
+    return (isinstance(t, dict) and set(THEME_KEYS) <= set(t)
+            and all(isinstance(t[k], str) and len(t[k]) == 7 and t[k][0] == "#"
+                    and all(c in "0123456789abcdefABCDEF" for c in t[k][1:]) for k in THEME_KEYS))
+
+
+_theme_cache: dict = {"mtime": None, "theme": None}
+
+
+def read_theme(path: str = THEME_FILE) -> dict | None:
+    """Palette from theme.json, re-read only when the file changes. Invalid → None (page keeps its defaults)."""
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        return None
+    if mtime != _theme_cache["mtime"]:
+        try:
+            with open(path, encoding="utf-8") as f:
+                t = json.load(f)
+            t = {k: t[k] for k in THEME_KEYS} if valid_theme(t) else None
+        except (OSError, ValueError):
+            t = None
+        _theme_cache.update(mtime=mtime, theme=t)
+    return _theme_cache["theme"]
 
 
 # ─── static info (read once) ────────────────────────────────────────────────
@@ -245,7 +275,7 @@ def make_handler(sampler: Sampler):
                 self.send_response(404)
                 self.end_headers()
                 return
-            body = json.dumps(sampler.get()).encode()
+            body = json.dumps({**sampler.get(), "theme": read_theme()}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             # The wallpaper runs from file:// (origin "null") — read-only data, so * is fine.
@@ -304,6 +334,24 @@ def selftest() -> int:
     check(isinstance(snap["cpu_model"], str) and snap["cpu_model"], "CPU model is a name, not overwritten by usage")
     check(isinstance(snap["cpu"], float), "cpu is the usage percentage")
     check(json.loads(json.dumps(snap)) == snap, "JSON-serializable")
+
+    import tempfile
+    good = {"bg": "#171717", "accent": "#b5f4e7", "secondary": "#7faca3",
+            "text": "#939fa1", "dim": "#4b5252", "faint": "#242626"}
+    check(valid_theme(good), "valid theme accepted")
+    check(not valid_theme({**good, "bg": "#12"}), "short hex rejected")
+    check(not valid_theme({**good, "bg": "url(x)"}), "non-color rejected (goes into CSS)")
+    check(not valid_theme({k: v for k, v in good.items() if k != "dim"}), "missing key rejected")
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, "theme.json")
+        check(read_theme(p) is None, "no file -> None")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({**good, "extra": 1}, f)
+        check(read_theme(p) == good, "theme read, extra keys dropped")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("{broken")
+        os.utime(p, ns=(1, 1))  # force a new mtime even on coarse-timestamp filesystems
+        check(read_theme(p) is None, "broken JSON -> None")
     print(f"selftest: {ok}/{ok + fail} OK")
     return 0 if fail == 0 else 1
 
