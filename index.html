@@ -53,10 +53,10 @@ h3 b{color:var(--teal);font-weight:400}
 .proc td.m{color:var(--teal);text-align:right;width:110px}
 .clock{position:absolute;right:150px;top:440px;text-align:right}
 /* block digits drawn as fixed-size cells, so no font or glyph width can shift them */
-.clock .time{display:inline-flex;gap:16px}
-.clock .glyph{display:grid;grid-template-rows:repeat(5,15px);gap:0}
-.clock .glyph .r{display:flex}
-.clock .glyph i{width:30px;height:15px}
+.clock .time{display:inline-flex;gap:18px}
+.clock .glyph{display:grid;grid-template-rows:repeat(5,13px);gap:3px}
+.clock .glyph .r{display:flex;gap:3px}
+.clock .glyph i{width:13px;height:13px}
 .clock .glyph i.on{background:var(--mint)}
 .clock .glyph.colon i.on{background:var(--teal)}
 .clock .date{font-size:18px;color:var(--teal);margin-top:14px;letter-spacing:.14em;text-transform:lowercase}
