@@ -1,0 +1,6 @@
+{
+  "file": "index.html",
+  "title": "termwall",
+  "type": "web",
+  "description": "fastfetch-style live system wallpaper (needs termwall_api.py on 127.0.0.1:9002)"
+}
