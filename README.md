@@ -5,8 +5,23 @@ a CLI. Windows logo, system info, per-core CPU bars, CPU/GPU history sparklines,
 disks, network and top processes, refreshed every second. Designed for 1920×1080 and
 scaled to whatever screen it lands on.
 
-Palette: `#171717` background, `#b5f4e7` mint, `#7faca3` teal, `#939fa1` grey.
+Default palette: `#171717` background, `#b5f4e7` mint, `#7faca3` teal, `#939fa1` grey.
 Font: Cascadia Mono (falls back to Consolas).
+
+## Live palette
+
+Drop a `theme.json` next to the API (or point `TERMWALL_THEME` at one) and the
+wallpaper recolors within a second — only CSS variables change, Wallpaper Engine
+doesn't reload anything:
+
+```json
+{"bg": "#171717", "accent": "#b5f4e7", "secondary": "#7faca3",
+ "text": "#939fa1", "dim": "#4b5252", "faint": "#242626"}
+```
+
+All six keys, `#rrggbb` only; anything invalid is ignored and the defaults stay.
+`theme.json` is machine state, so it's gitignored. A switcher (mine is a private
+"rice" script bound to macro keys) just rewrites this file.
 
 ## Parts
 
@@ -49,7 +64,7 @@ Inside Wallpaper Engine the currently playing track also appears under the clock
 ```
 python termwall_api.py            # serve
 python termwall_api.py --once     # print one snapshot
-python termwall_api.py --selftest # 15 assertions
+python termwall_api.py --selftest # 22 assertions
 ```
 
 A background thread samples once per second (GPU every 2 s, processes every 3 s), so a

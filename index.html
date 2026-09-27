@@ -78,7 +78,7 @@ h3 b{color:var(--teal);font-weight:400}
       <div class="title"><span class="k" id="user">panto</span><span class="at">@</span><span class="k" id="host">KOMPU</span></div>
       <div class="sep" id="sep">-----------</div>
       <div id="rows"></div>
-      <div class="swatches"><span style="background:#171717;outline:1px solid #2c2e2e"></span><span style="background:#939fa1"></span><span style="background:#7faca3"></span><span style="background:#b5f4e7"></span><span style="background:#4b5252"></span><span style="background:#e9fbf7"></span></div>
+      <div class="swatches"><span style="background:var(--bg);outline:1px solid var(--dim)"></span><span style="background:var(--grey)"></span><span style="background:var(--teal)"></span><span style="background:var(--mint)"></span><span style="background:var(--dim)"></span><span style="background:var(--faint)"></span></div>
     </div>
   </div>
 
@@ -170,12 +170,25 @@ function render(s){
     `<tr><td class="n">${esc(p.name.replace(/\.exe$/i, ""))}${p.count > 1 ? ` <span class="d">×${p.count}</span>` : ""}</td><td class="c">${p.cpu.toFixed(1)}%</td><td class="m">${(p.mem/1024**2).toFixed(0)} MiB</td></tr>`).join("");
 }
 
+// Palette from the API (theme.json, written by rice). Only swaps CSS variables — instant, no reload.
+const THEME_VARS = {bg: "--bg", accent: "--mint", secondary: "--teal", text: "--grey", dim: "--dim", faint: "--faint"};
+let themeKey = "";
+function applyTheme(t){
+  const key = t ? JSON.stringify(t) : "";
+  if (key === themeKey) return;
+  themeKey = key;
+  const root = document.documentElement.style;
+  for (const [k, v] of Object.entries(THEME_VARS)) {
+    if (t && /^#[0-9a-f]{6}$/i.test(t[k] || "")) root.setProperty(v, t[k]); else root.removeProperty(v);
+  }
+}
+
 let failures = 0;
 async function poll(){
   try {
     const r = await fetch(API, {cache: "no-store"});
     const s = await r.json();
-    if (s && s.time) { render(s); failures = 0;
+    if (s && s.time) { applyTheme(s.theme); render(s); failures = 0;
       $("status").innerHTML = `<span class="ok">●</span> termwall-api · 127.0.0.1:9002 · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`; }
   } catch (e) {
     failures++;
