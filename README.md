@@ -27,7 +27,7 @@ pip install psutil
 python termwall_api.py --selftest
 ```
 
-1. Autostart: copy `termwall-api.vbs` into `shell:startup` (or run it once now).
+1. Autostart: put a **shortcut** to `termwall-api.vbs` in `shell:startup` (the launcher finds `termwall_api.py` next to itself and uses `pythonw` from PATH).
 2. Wallpaper Engine → **Open wallpaper** → **Open from file** → pick `index.html`, then
    choose the monitor.
 
