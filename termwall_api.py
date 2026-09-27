@@ -14,6 +14,8 @@ nvidia-smi if it exists; without it the "gpu" field is null.
 from __future__ import annotations
 
 import datetime
+import hmac
+import secrets
 import getpass
 import json
 import os
@@ -45,6 +47,28 @@ def valid_theme(t) -> bool:
 
 
 PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.js")
+
+
+def write_token(path: str = TOKEN_FILE) -> str:
+    """A random token per API start, written next to the page as token.js. The wallpaper (a
+    local file) can load it; a web page in a browser can't read your disk, so it can't call
+    the API even though the API answers on 127.0.0.1. In-place write, no temp+rename."""
+    token = secrets.token_urlsafe(24)
+    with open(path, "a+", encoding="utf-8") as f:
+        f.seek(0)
+        f.truncate()
+        f.write(f'window.TERMWALL_TOKEN = "{token}";\n')
+    return token
+
+
+def request_ok(path_qs: str, host: str | None, token: str) -> bool:
+    """Token in ?t= and a loopback Host header (blocks DNS rebinding)."""
+    from urllib.parse import parse_qs, urlsplit
+    if (host or "").split(":")[0] not in ("127.0.0.1", "localhost"):
+        return False
+    sent = parse_qs(urlsplit(path_qs).query).get("t", [""])[0]
+    return hmac.compare_digest(sent.encode(), token.encode())
 
 
 def page_version() -> int | None:
@@ -277,24 +301,37 @@ class Sampler:
 
 # ─── HTTP ────────────────────────────────────────────────────────────────────
 
-def make_handler(sampler: Sampler):
+def make_handler(sampler: Sampler, token: str):
+    counts = {"ok": 0, "forbidden": 0}  # /health — lets you check the wallpaper is getting through
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
 
         def do_GET(self):
             path = self.path.split("?")[0]
+            if not request_ok(self.path, self.headers.get("Host"), token):
+                counts["forbidden"] += 1
+                self.send_response(403)
+                self.send_header("Access-Control-Allow-Origin", "*")  # lets the page see the 403 and reload
+                self.end_headers()
+                return
             if path == "/stats":
                 body = json.dumps({**sampler.get(), "theme": read_theme(), "page": page_version()}).encode()
             elif path == "/theme":  # tiny, polled often so palette switches land fast
                 body = json.dumps({"theme": read_theme(), "page": page_version()}).encode()
+            elif path == "/health":
+                body = json.dumps(counts).encode()
             else:
                 self.send_response(404)
                 self.end_headers()
                 return
+            if path != "/health":
+                counts["ok"] += 1
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            # The wallpaper runs from file:// (origin "null") — read-only data, so * is fine.
+            # The wallpaper runs from file:// (origin "null"). * is fine: without the token
+            # nothing but a 403 is readable.
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
@@ -309,7 +346,7 @@ def serve() -> None:
     sampler.sample()
     threading.Thread(target=sampler.run, daemon=True).start()
     try:
-        httpd = ThreadingHTTPServer((HOST, PORT), make_handler(sampler))
+        httpd = ThreadingHTTPServer((HOST, PORT), make_handler(sampler, write_token()))
     except OSError as e:
         sys.exit(f"port {PORT} is taken ({e}) — is another termwall_api already running?")
     print(f"termwall api on http://{HOST}:{PORT}/stats")
@@ -350,6 +387,13 @@ def selftest() -> int:
     check(isinstance(snap["cpu_model"], str) and snap["cpu_model"], "CPU model is a name, not overwritten by usage")
     check(isinstance(snap["cpu"], float), "cpu is the usage percentage")
     check(json.loads(json.dumps(snap)) == snap, "JSON-serializable")
+
+    tok = "abc123"
+    check(request_ok("/stats?t=abc123", "127.0.0.1:9002", tok), "right token + loopback host")
+    check(not request_ok("/stats", "127.0.0.1:9002", tok), "no token -> refused")
+    check(not request_ok("/stats?t=nope", "127.0.0.1:9002", tok), "wrong token -> refused")
+    check(not request_ok("/stats?t=abc123", "evil.example:9002", tok), "foreign Host (DNS rebinding) -> refused")
+    check(request_ok("/theme?t=abc123", "localhost:9002", tok), "localhost Host accepted")
 
     import tempfile
     good = {"bg": "#171717", "accent": "#b5f4e7", "secondary": "#7faca3",
