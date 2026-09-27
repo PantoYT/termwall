@@ -183,12 +183,15 @@ function applyTheme(t){
   }
 }
 
-let failures = 0;
+let failures = 0, pageVersion = null;
 async function poll(){
   try {
     const r = await fetch(API, {cache: "no-store"});
     const s = await r.json();
-    if (s && s.time) { applyTheme(s.theme); render(s); failures = 0;
+    if (s && s.time) {
+      // index.html changed on disk (API reports its mtime) → reload once to pick it up
+      if (s.page != null) { if (pageVersion == null) pageVersion = s.page; else if (s.page !== pageVersion) { location.reload(); return; } }
+      applyTheme(s.theme); render(s); failures = 0;
       $("status").innerHTML = `<span class="ok">●</span> termwall-api · 127.0.0.1:9002 · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`; }
   } catch (e) {
     failures++;
