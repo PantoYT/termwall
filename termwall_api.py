@@ -44,6 +44,18 @@ def valid_theme(t) -> bool:
                     and all(c in "0123456789abcdefABCDEF" for c in t[k][1:]) for k in THEME_KEYS))
 
 
+PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+
+
+def page_version() -> int | None:
+    """mtime of index.html next to the API. The page reloads itself when this changes,
+    so edits show up without re-adding the wallpaper in Wallpaper Engine."""
+    try:
+        return os.stat(PAGE_FILE).st_mtime_ns
+    except OSError:
+        return None
+
+
 _theme_cache: dict = {"mtime": None, "theme": None}
 
 
@@ -275,7 +287,7 @@ def make_handler(sampler: Sampler):
                 self.send_response(404)
                 self.end_headers()
                 return
-            body = json.dumps({**sampler.get(), "theme": read_theme()}).encode()
+            body = json.dumps({**sampler.get(), "theme": read_theme(), "page": page_version()}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             # The wallpaper runs from file:// (origin "null") — read-only data, so * is fine.
