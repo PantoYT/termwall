@@ -34,6 +34,16 @@ python termwall_api.py --selftest
 Inside Wallpaper Engine the bottom-right corner also shows the currently playing track
 (Wallpaper Engine's media integration); in a normal browser that line stays empty.
 
+## Other systems
+
+- **Wallpaper Engine is Windows-only**, but `index.html` is a plain page — any tool
+  that can use a web page as a wallpaper works (e.g. Lively Wallpaper on Windows, web
+  wallpaper plugins on Linux desktops).
+- **The API is cross-platform** (psutil runs on Linux and macOS; `nvidia-smi` is
+  optional). CPU and motherboard names are read from the Windows registry, so elsewhere
+  they fall back to what `platform` reports. Only tested on Windows so far.
+- The prompt adapts: PowerShell style on Windows, `user@host:~$` elsewhere.
+
 ## API
 
 ```

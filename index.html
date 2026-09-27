@@ -52,8 +52,13 @@ h3 b{color:var(--teal);font-weight:400}
 .proc td.c{color:var(--mint);text-align:right;width:80px}
 .proc td.m{color:var(--teal);text-align:right;width:110px}
 .clock{position:absolute;right:150px;top:440px;text-align:right}
-.clock pre.time{font:inherit;font-size:15px;line-height:1;color:var(--mint);white-space:pre;letter-spacing:0}
-.clock pre.time .c{color:var(--teal)}
+/* block digits drawn as fixed-size cells, so no font or glyph width can shift them */
+.clock .time{display:inline-flex;gap:16px}
+.clock .glyph{display:grid;grid-template-rows:repeat(5,15px);gap:0}
+.clock .glyph .r{display:flex}
+.clock .glyph i{width:30px;height:15px}
+.clock .glyph i.on{background:var(--mint)}
+.clock .glyph.colon i.on{background:var(--teal)}
 .clock .date{font-size:18px;color:var(--teal);margin-top:14px;letter-spacing:.14em;text-transform:lowercase}
 .clock .sec{font-size:15px;color:var(--dim);margin-top:2px}
 .status{position:absolute;left:140px;bottom:92px;font-size:15px;color:var(--dim)}
@@ -65,7 +70,7 @@ h3 b{color:var(--teal);font-weight:400}
 <div id="stage">
   <div class="prompt"><span class="t">PS</span> <span class="path">C:\Users\<span id="p-user">panto</span></span><span class="arrow">&gt;</span> fastfetch --live <span class="cursor"></span></div>
 
-  <div class="clock"><pre class="time" id="time"></pre><div class="date" id="date"></div><div class="sec" id="sec"></div><div class="now" id="now"></div></div>
+  <div class="clock"><div class="time" id="time"></div><div class="date" id="date"></div><div class="sec" id="sec"></div><div class="now" id="now"></div></div>
 
   <div class="top">
 <pre class="logo" id="logo"></pre>
@@ -129,7 +134,11 @@ function uptime(s){ const d = Math.floor(s/86400), h = Math.floor(s%86400/3600),
 function row(k, v){ return `<div class="row"><span class="key">${k ? k + ":" : ""}</span><span class="val">${v}</span></div>`; }
 
 function render(s){
-  $("user").textContent = s.user; $("host").textContent = s.host; $("p-user").textContent = s.user;
+  $("user").textContent = s.user; $("host").textContent = s.host;
+  // PowerShell-style prompt on Windows, POSIX-style everywhere else
+  document.querySelector(".prompt").innerHTML = /^Windows/.test(s.os)
+    ? `<span class="t">PS</span> <span class="path">C:\\Users\\${esc(s.user)}</span><span class="arrow">&gt;</span> fastfetch --live <span class="cursor"></span>`
+    : `<span class="k">${esc(s.user)}@${esc(s.host)}</span>:<span class="path">~</span><span class="arrow">$</span> fastfetch --live <span class="cursor"></span>`;
   $("sep").textContent = "-".repeat((s.user + "@" + s.host).length);
   const g = s.gpu;
   const rows = [
@@ -182,17 +191,13 @@ const DIGITS = {
   "6":["111","100","111","101","111"], "7":["111","001","010","010","010"],
   "8":["111","101","111","101","111"], "9":["111","101","111","001","111"],
   ":":["0","1","0","1","0"] };
-// tty-clock style: each lit cell is two full blocks
+// tty-clock style digits as a 3×5 grid of cells (block characters came from a
+// fallback font with a different width than a space, which skewed the rows)
 function bigText(str){
-  const rows = ["","","","",""];
-  for (const ch of str) {
-    const g = DIGITS[ch]; if (!g) continue;
-    for (let r = 0; r < 5; r++) {
-      const cells = g[r].split("").map(b => b === "1" ? "██" : "  ").join("");
-      rows[r] += (ch === ":" ? `<span class="c">${cells}</span>` : cells) + "  ";
-    }
-  }
-  return rows.map(r => r.replace(/\s+$/, "")).join("\n");
+  return [...str].filter(ch => DIGITS[ch]).map(ch =>
+    `<div class="glyph${ch === ":" ? " colon" : ""}">` +
+    DIGITS[ch].map(row => `<div class="r">${[...row].map(b => `<i${b === "1" ? ' class="on"' : ""}></i>`).join("")}</div>`).join("") +
+    `</div>`).join("");
 }
 function tick(){ const n = new Date();
   $("time").innerHTML = bigText(n.toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit"}));
