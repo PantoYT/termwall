@@ -31,7 +31,7 @@ python termwall_api.py --selftest
 2. Wallpaper Engine → **Open wallpaper** → **Open from file** → pick `index.html`, then
    choose the monitor.
 
-Inside Wallpaper Engine the bottom-right corner also shows the currently playing track
+Inside Wallpaper Engine the currently playing track also appears under the clock
 (Wallpaper Engine's media integration); in a normal browser that line stays empty.
 
 ## Other systems
