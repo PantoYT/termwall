@@ -46,6 +46,18 @@ python termwall_api.py --selftest
 2. Wallpaper Engine → **Open wallpaper** → **Open from file** → pick `index.html`, then
    choose the monitor.
 
+"Open from file" makes Wallpaper Engine keep its **own copy** under
+`projects\myprojects\termwall`, so later edits don't reach it. Replace that copy with a
+junction to the repo once:
+
+```
+rmdir /s /q "<WE>\projects\myprojects\termwall"
+mklink /J "<WE>\projects\myprojects\termwall" "<repo>\termwall"
+```
+
+After that the page reloads itself whenever `index.html` changes (the API reports the
+file's mtime), so there's nothing to re-add.
+
 Inside Wallpaper Engine the currently playing track also appears under the clock
 (Wallpaper Engine's media integration); in a normal browser that line stays empty.
 
