@@ -100,8 +100,21 @@ h3 b{color:var(--teal);font-weight:400}
   <div class="status" id="status">connecting to termwall api…</div>
 </div>
 
+<script src="token.js"></script>
 <script>
+// token.js is written by termwall_api.py at start; without the token the API answers 403.
+const TOKEN = encodeURIComponent(window.TERMWALL_TOKEN || "");
 const API = "http://127.0.0.1:9002/stats";
+function withToken(url){ return url + "?t=" + TOKEN; }
+// API restarted → new token → 403. Reload (re-reads token.js), at most once per 10 s.
+function onForbidden(){
+  let last = 0;
+  try { last = +sessionStorage.getItem("tw-reload") || 0; } catch (e) { return; }  // no storage → no reload loop
+  if (Date.now() - last > 10000) {
+    try { sessionStorage.setItem("tw-reload", String(Date.now())); } catch (e) {}
+    location.reload();
+  }
+}
 const $ = id => document.getElementById(id);
 
 // fastfetch's Windows logo, 4 panes; top panes mint, bottom panes teal
@@ -186,7 +199,8 @@ function applyTheme(t){
 let failures = 0, pageVersion = null;
 async function poll(){
   try {
-    const r = await fetch(API, {cache: "no-store"});
+    const r = await fetch(withToken(API), {cache: "no-store"});
+    if (r.status === 403) { onForbidden(); return; }
     const s = await r.json();
     if (s && s.time) {
       // index.html changed on disk (API reports its mtime) → reload once to pick it up
@@ -210,7 +224,9 @@ function checkPage(s){
 // Palette checked 4×/s through the tiny /theme endpoint — stats stay at 1/s.
 async function pollTheme(){
   try {
-    const s = await (await fetch(API.replace("/stats", "/theme"), {cache: "no-store"})).json();
+    const r = await fetch(withToken(API.replace("/stats", "/theme")), {cache: "no-store"});
+    if (r.status === 403) { onForbidden(); return; }
+    const s = await r.json();
     if (!checkPage(s)) applyTheme(s.theme);
   } catch (e) {}
 }
