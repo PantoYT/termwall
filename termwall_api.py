@@ -283,11 +283,15 @@ def make_handler(sampler: Sampler):
             pass
 
         def do_GET(self):
-            if self.path.split("?")[0] != "/stats":
+            path = self.path.split("?")[0]
+            if path == "/stats":
+                body = json.dumps({**sampler.get(), "theme": read_theme(), "page": page_version()}).encode()
+            elif path == "/theme":  # tiny, polled often so palette switches land fast
+                body = json.dumps({"theme": read_theme(), "page": page_version()}).encode()
+            else:
                 self.send_response(404)
                 self.end_headers()
                 return
-            body = json.dumps({**sampler.get(), "theme": read_theme(), "page": page_version()}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             # The wallpaper runs from file:// (origin "null") — read-only data, so * is fine.

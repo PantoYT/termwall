@@ -190,7 +190,7 @@ async function poll(){
     const s = await r.json();
     if (s && s.time) {
       // index.html changed on disk (API reports its mtime) → reload once to pick it up
-      if (s.page != null) { if (pageVersion == null) pageVersion = s.page; else if (s.page !== pageVersion) { location.reload(); return; } }
+      if (checkPage(s)) return;
       applyTheme(s.theme); render(s); failures = 0;
       $("status").innerHTML = `<span class="ok">●</span> termwall-api · 127.0.0.1:9002 · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`; }
   } catch (e) {
@@ -199,6 +199,22 @@ async function poll(){
   }
 }
 setInterval(poll, 1000); poll();
+
+// index.html changed on disk (API reports its mtime) → reload once to pick it up
+function checkPage(s){
+  if (s.page == null) return false;
+  if (pageVersion == null) { pageVersion = s.page; return false; }
+  if (s.page !== pageVersion) { location.reload(); return true; }
+  return false;
+}
+// Palette checked 4×/s through the tiny /theme endpoint — stats stay at 1/s.
+async function pollTheme(){
+  try {
+    const s = await (await fetch(API.replace("/stats", "/theme"), {cache: "no-store"})).json();
+    if (!checkPage(s)) applyTheme(s.theme);
+  } catch (e) {}
+}
+setInterval(pollTheme, 250);
 
 const DIGITS = {
   "0":["111","101","101","101","111"], "1":["010","110","010","010","111"],
