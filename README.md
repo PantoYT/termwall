@@ -1,10 +1,20 @@
 # termwall
 
-A live, fastfetch-style terminal wallpaper for Wallpaper Engine — like panto-os, but as
-a CLI. Windows logo, system info, per-core CPU bars, CPU/GPU history sparklines, RAM,
-disks, network and top processes, refreshed every second. Designed for 1920×1080 and
-scaled to whatever screen it lands on.
+A live, fastfetch-style system-stats wallpaper for Wallpaper Engine and Lively Wallpaper:
+system info, per-core CPU bars, CPU/GPU history, memory, disks, network and top processes,
+refreshed every second. Three layouts; the palette can follow your wallpaper.
 
+![fetch layout](docs/fetch.png)
+
+| board | minimal |
+|---|---|
+| ![board layout](docs/board.png) | ![minimal layout](docs/minimal.png) |
+
+Install: `winget install PantoYT.termwall` (once the package is in winget), or
+`termwall-setup-X.Y.Z.exe` from [Releases](https://github.com/PantoYT/termwall/releases).
+Screenshots are from the demo mode (`index.html?demo`), with made-up stats.
+
+Designed for 1920×1080 and scaled (and centered) to whatever screen it lands on.
 Default palette: `#171717` background, `#b5f4e7` mint, `#7faca3` teal, `#939fa1` grey.
 Font: Cascadia Mono (falls back to Consolas).
 
@@ -74,6 +84,9 @@ Inside Wallpaper Engine the currently playing track also appears under the clock
 (Wallpaper Engine's media integration); in a normal browser that line stays empty.
 
 ## Looks
+
+Preview any look in a browser without the API: `index.html?demo&layout=board` (add
+`&clock=segments`, `&bars=dots`, or a palette as `&bg=171717&accent=b5f4e7&secondary=7faca3&text=939fa1&dim=4b5252&faint=242626`).
 
 Three layouts, three clocks and four bar styles, switched live (no wallpaper reload):
 

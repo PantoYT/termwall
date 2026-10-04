@@ -220,8 +220,11 @@ addEventListener("resize", fit); fit();
 // ── the look: layout, clock, bars (from termwall.json / theme.json through the API) ──
 const LAYOUTS = ["fetch", "board", "minimal"];
 let style = {layout: "fetch", clock: "blocks", bars: "blocks", rotate: 0}, styleKey = "";
+const URLQ = new URLSearchParams(location.search);
+const URL_STYLE = Object.fromEntries(["layout", "clock", "bars"].filter(k => URLQ.get(k)).map(k => [k, URLQ.get(k)]));
 function applyStyle(st){
   if (!st) return;
+  st = {...st, ...URL_STYLE};
   const key = JSON.stringify(st);
   if (key === styleKey) return;
   styleKey = key; style = st; showLayout(); tick();
@@ -368,7 +371,41 @@ async function poll(){
     put("status", `<span class="bad">●</span> api offline · run <span class="g">python termwall_api.py</span>` + (failures > 1 ? ` <span class="d">(${failures})</span>` : ""));
   }
 }
-setInterval(poll, 1000); poll();
+// ?demo: made-up stats, no API needed — for previews and screenshots (nothing of this PC shown)
+const DEMO = URLQ.has("demo");
+function demoStats(){
+  const t = Date.now() / 1000, w = (a, f, o = 0) => a * (0.5 + 0.5 * Math.sin(t * f + o));
+  const hist = (f, o, base, amp) => Array.from({length: 60}, (_, i) => base + w(amp, f, o - i * f * 1.7) + 6 * Math.sin(i * 1.3 + o));
+  const cores = Array.from({length: 16}, (_, i) => Math.max(1, Math.min(99, 12 + w(55, 0.7 + i * 0.05, i) + (i % 5 === 0 ? 20 : 0))));
+  const cpu = cores.reduce((a, b) => a + b, 0) / cores.length;
+  return {
+    user: "user", host: "desktop", os: "Windows 11 Pro 25H2 AMD64", os_family: "windows",
+    kernel: "WIN32_NT 10.0.26200.6584", board: "B650 AORUS ELITE AX", cpu_model: "AMD Ryzen 7 7800X3D 8-Core Processor",
+    cores: 16, cpu_freq: 4850, time: t, uptime: 3 * 86400 + 5 * 3600 + 1260, shell: "PowerShell",
+    cpu, cores_pct: cores,
+    gpu: {name: "NVIDIA GeForce RTX 4070", util: 30 + w(40, 0.4), temp: 54, vram_used: 5120, vram_total: 12288, power: 118},
+    ram: {used: 21.4 * 1024 ** 3, total: 32 * 1024 ** 3, percent: 66.8},
+    swap: {used: 1.2 * 1024 ** 3, total: 8 * 1024 ** 3, percent: 15},
+    disks: [{mount: "C:", fs: "NTFS", used: 412e9, total: 1000e9, percent: 41.2},
+            {mount: "D:", fs: "NTFS", used: 1310e9, total: 2000e9, percent: 65.5}],
+    net: {down: 2.4e6 + w(3e6, 0.9), up: 180e3 + w(2e5, 1.3)}, local_ip: "192.168.1.20 (Ethernet)",
+    procs: [{name: "game.exe", cpu: 14.2, mem: 6.1e9, count: 1}, {name: "firefox.exe", cpu: 4.8, mem: 2.2e9, count: 14},
+            {name: "obs64.exe", cpu: 3.1, mem: 640e6, count: 1}, {name: "discord.exe", cpu: 1.2, mem: 520e6, count: 6},
+            {name: "code.exe", cpu: 0.9, mem: 910e6, count: 9}, {name: "spotify.exe", cpu: 0.4, mem: 310e6, count: 5}],
+    procs_total: 287,
+    history: {cpu: hist(0.5, 0, 15, 40), gpu: hist(0.3, 2, 20, 50), down: hist(0.8, 1, 1e6, 4e6), up: hist(1.1, 3, 1e5, 3e5)},
+  };
+}
+if (DEMO) {
+  // ?bg=171717&accent=b5f4e7&... : a palette for the demo (all six, hex without #)
+  const keys = ["bg", "accent", "secondary", "text", "dim", "faint"];
+  if (keys.every(k => /^[0-9a-f]{6}$/i.test(URLQ.get(k) || ""))) applyTheme(Object.fromEntries(keys.map(k => [k, "#" + URLQ.get(k)])));
+  const demo = () => { const s = demoStats(); applyStyle(style); render(s);
+    put("status", `<span class="ok">●</span> demo · made-up stats`); };
+  setInterval(demo, 1000); setTimeout(demo, 0);  // after the whole script ran (clock glyphs below)
+} else {
+  setInterval(poll, 1000); poll();
+}
 
 // index.html changed on disk (API reports its mtime) → reload once to pick it up
 function checkPage(s){
@@ -386,7 +423,7 @@ async function pollTheme(){
     if (!checkPage(s)) { applyTheme(s.theme); applyStyle(s.style); }
   } catch (e) {}
 }
-setInterval(pollTheme, 250);
+if (!DEMO) setInterval(pollTheme, 250);
 
 // ── clock glyphs ──
 // blocks: a 3×5 pixel font, every glyph ONE svg path — no seams between cells at any scale
