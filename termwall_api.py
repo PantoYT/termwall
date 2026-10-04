@@ -8,6 +8,9 @@ once per second, so a request never blocks on psutil or nvidia-smi.
     python termwall_api.py --selftest
     python termwall_api.py --style                  # the look: layout, clock, bars, rotation
     python termwall_api.py --style layout board     # change one of them (the page follows live)
+    python termwall_api.py --link-we                # show up in Wallpaper Engine (a junction in myprojects)
+    python termwall_api.py --link-lively            # the same for Lively Wallpaper (its library)
+    python termwall_api.py --unlink-we | --unlink-lively | --stop | --version
 
 Dependencies: psutil (CPU/RAM/disks/net/processes). The GPU comes from
 nvidia-smi if it exists; without it the "gpu" field is null.
@@ -32,6 +35,8 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
+
+__version__ = "1.1.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
@@ -300,6 +305,168 @@ def read_gpu() -> dict | None:
     return parse_nvidia_smi(out.splitlines()[0]) if out.strip() else None
 
 
+# ─── install helpers (the Windows installer runs these) ─────────────────────
+
+HERE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def steam_libraries(vdf_text: str) -> list[str]:
+    """Library folders from Steam's libraryfolders.vdf (every "path" entry)."""
+    import re
+    return [m.replace("\\\\", "\\") for m in re.findall(r'"path"\s+"([^"]+)"', vdf_text)]
+
+
+def we_projects() -> str | None:
+    """Wallpaper Engine's projects/myprojects, found through Steam (registry → libraries)."""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
+            steam = winreg.QueryValueEx(k, "SteamPath")[0]
+    except OSError:
+        return None
+    libs = [steam]
+    try:
+        with open(os.path.join(steam, "steamapps", "libraryfolders.vdf"), encoding="utf-8", errors="replace") as f:
+            libs += steam_libraries(f.read())
+    except OSError:
+        pass
+    for lib in libs:
+        we = os.path.join(lib, "steamapps", "common", "wallpaper_engine")
+        if os.path.isfile(os.path.join(we, "wallpaper64.exe")):
+            return os.path.join(we, "projects", "myprojects")
+    return None
+
+
+def link_we() -> str:
+    """A junction projects/myprojects/termwall → this folder, so Wallpaper Engine lists
+    termwall and plays this very copy (no stale copy of its own). An existing termwall there
+    that isn't ours is left alone."""
+    projects = we_projects()
+    if projects is None:
+        return "Wallpaper Engine not found — open index.html from this folder in your wallpaper app"
+    link = os.path.join(projects, "termwall")
+    if os.path.lexists(link):
+        try:
+            if os.path.samefile(link, HERE_DIR):
+                return f"already linked: {link}"
+        except OSError:
+            pass
+        return f"left alone: {link} exists and isn't this install (your own termwall?)"
+    os.makedirs(projects, exist_ok=True)
+    r = subprocess.run(["cmd", "/c", "mklink", "/J", link, HERE_DIR], capture_output=True, text=True,
+                       creationflags=CREATE_NO_WINDOW)
+    return f"linked {link} -> {HERE_DIR}" if r.returncode == 0 else f"mklink failed: {r.stdout}{r.stderr}".strip()
+
+
+def unlink_we() -> str:
+    projects = we_projects()
+    link = os.path.join(projects, "termwall") if projects else None
+    if not link or not os.path.lexists(link):
+        return "nothing linked"
+    try:
+        ours = os.path.samefile(link, HERE_DIR)
+    except OSError:
+        ours = False
+    if not ours:
+        return f"left alone: {link} isn't this install"
+    os.rmdir(link)  # removes the junction itself, never what it points to
+    return f"unlinked {link}"
+
+
+LIVELY_PKG = "12030rocksdanister.LivelyWallpaper"  # the Microsoft Store build's package name
+
+
+def lively_library() -> str | None:
+    """Lively Wallpaper's wallpapers folder on disk (the Store build's writes are redirected
+    into its package folder), or None when Lively hasn't run yet."""
+    local = os.environ.get("LOCALAPPDATA", "")
+    virtual = os.path.join(local, "Lively Wallpaper")
+    real = None
+    packages = os.path.join(local, "Packages")
+    if os.path.isdir(packages):
+        for d in sorted(os.listdir(packages)):
+            cand = os.path.join(packages, d, "LocalCache", "Local", "Lively Wallpaper")
+            if d.startswith(LIVELY_PKG + "_") and os.path.isfile(os.path.join(cand, "Settings.json")):
+                real = cand
+                break
+    if real is None and os.path.isfile(os.path.join(virtual, "Settings.json")):
+        real = virtual
+    if real is None:
+        return None
+    try:
+        with open(os.path.join(real, "Settings.json"), encoding="utf-8-sig") as f:
+            wd = json.load(f).get("WallpaperDir") or os.path.join(virtual, "Library")
+    except (OSError, ValueError):
+        wd = os.path.join(virtual, "Library")
+    rel = os.path.relpath(wd, virtual) if os.path.normcase(wd).startswith(os.path.normcase(virtual)) else None
+    return os.path.join(real if rel is not None else wd, rel or "", "wallpapers")
+
+
+def lively_entry() -> str | None:
+    lib = lively_library()
+    return os.path.join(lib, "termwall") if lib else None
+
+
+def link_lively() -> str:
+    """A Lively library entry (LivelyInfo.json, a web wallpaper) that points at this folder's
+    index.html — termwall shows up in Lively after Lively's next start."""
+    entry = lively_entry()
+    if entry is None:
+        return "Lively not found (or never started) — nothing to do"
+    info = {"AppVersion": "1.0.0.0", "Title": "termwall", "Desc": "live system stats, fastfetch style",
+            "Author": "PantoYT", "License": "MIT", "Contact": "https://github.com/PantoYT/termwall",
+            "Type": 1, "FileName": os.path.join(HERE_DIR, "index.html"), "Arguments": None, "IsAbsolutePath": True}
+    f = os.path.join(entry, "LivelyInfo.json")
+    if os.path.exists(f):
+        try:
+            with open(f, encoding="utf-8-sig") as fh:
+                if os.path.normcase(json.load(fh).get("FileName", "")) != os.path.normcase(info["FileName"]):
+                    return f"left alone: {entry} is another termwall"
+        except (OSError, ValueError):
+            return f"left alone: {entry}"
+    os.makedirs(entry, exist_ok=True)
+    with open(f, "a+", encoding="utf-8") as fh:  # in place: no temp+rename
+        fh.seek(0)
+        fh.truncate()
+        fh.write(json.dumps(info, indent=2) + "\n")
+    return f"added to Lively's library: {entry} (restart Lively to see it)"
+
+
+def unlink_lively() -> str:
+    entry = lively_entry()
+    f = os.path.join(entry, "LivelyInfo.json") if entry else None
+    if not f or not os.path.exists(f):
+        return "nothing in Lively's library"
+    try:
+        with open(f, encoding="utf-8-sig") as fh:
+            ours = os.path.normcase(json.load(fh).get("FileName", "")) == os.path.normcase(os.path.join(HERE_DIR, "index.html"))
+    except (OSError, ValueError):
+        ours = False
+    if not ours:
+        return f"left alone: {entry} isn't this install"
+    shutil.rmtree(entry, ignore_errors=True)
+    return f"removed {entry}"
+
+
+def stop_running() -> int:
+    """Stop the API processes running THIS folder's termwall_api.py (installer: before an
+    update replaces files, and on uninstall). Returns how many were stopped."""
+    me = os.path.normcase(os.path.abspath(__file__))
+    n = 0
+    for p in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmd = p.info["cmdline"] or []
+            if p.info["pid"] != os.getpid() and any(os.path.normcase(os.path.abspath(c)) == me
+                                                     for c in cmd[1:] if c.endswith(".py")):
+                p.kill()
+                n += 1
+        except (psutil.Error, OSError):
+            continue
+    return n
+
+
 # ─── sampler ─────────────────────────────────────────────────────────────────
 
 PSEUDO_FS = ("squashfs", "overlay", "tmpfs", "devtmpfs", "efivarfs", "fuse.snapfuse", "nsfs")
@@ -552,6 +719,22 @@ def selftest() -> int:
     check(parse_cpuinfo("processor\t: 0\nmodel name\t: Intel(R) Core(TM) i5-4590 CPU @ 3.30GHz\n")
           == "Intel(R) Core(TM) i5-4590 CPU @ 3.30GHz", "cpuinfo model name")
     check(snap.get("os_family") in ("windows", "linux", "darwin"), "os_family for the logo")
+    vdf = '"libraryfolders"\n{\n "0"\n {\n  "path"\t\t"C:\\\\Program Files (x86)\\\\Steam"\n }\n "1"\n {\n  "path"\t\t"D:\\\\SteamLibrary"\n }\n}'
+    with tempfile.TemporaryDirectory() as td:
+        saved = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = td
+        check(lively_library() is None, "no Lively -> nothing to link")
+        os.makedirs(os.path.join(td, "Lively Wallpaper"))
+        with open(os.path.join(td, "Lively Wallpaper", "Settings.json"), "w", encoding="utf-8") as f:
+            json.dump({"WallpaperDir": os.path.join(td, "Lively Wallpaper", "Library")}, f)
+        check(lively_library() == os.path.join(td, "Lively Wallpaper", "Library", "wallpapers"), "Lively's library")
+        check("added" in link_lively() and "already" not in link_lively() and "removed" in unlink_lively(),
+              "Lively entry added (twice is fine) and removed")
+        if saved is None:
+            os.environ.pop("LOCALAPPDATA")
+        else:
+            os.environ["LOCALAPPDATA"] = saved
+    check(steam_libraries(vdf) == ["C:\\Program Files (x86)\\Steam", "D:\\SteamLibrary"], "Steam libraries from libraryfolders.vdf")
     print(f"selftest: {ok}/{ok + fail} OK")
     return 0 if fail == 0 else 1
 
@@ -559,6 +742,24 @@ def selftest() -> int:
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(selftest())
+    if "--version" in sys.argv:
+        print(f"termwall {__version__}")
+        sys.exit(0)
+    if "--link-we" in sys.argv:
+        print(link_we())
+        sys.exit(0)
+    if "--link-lively" in sys.argv:
+        print(link_lively())
+        sys.exit(0)
+    if "--unlink-lively" in sys.argv:
+        print(unlink_lively())
+        sys.exit(0)
+    if "--unlink-we" in sys.argv:
+        print(unlink_we())
+        sys.exit(0)
+    if "--stop" in sys.argv:
+        print(f"stopped {stop_running()}")
+        sys.exit(0)
     if "--style" in sys.argv:
         rest = sys.argv[sys.argv.index("--style") + 1:]
         try:

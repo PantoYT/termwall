@@ -1,0 +1,63 @@
+# Builds the Windows installer. A push of a tag v* also publishes it as a GitHub release
+# (winget's manifest points at that file); a manual run only keeps it as a build artifact.
+name: installer
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Selftest
+        run: |
+          python -m pip install --quiet psutil
+          python termwall_api.py --selftest
+
+      - name: Build the installer
+        shell: pwsh
+        run: ./installer/build.ps1
+
+      - name: Silent install, check, uninstall
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem build -Filter 'termwall-setup-*.exe' | Select-Object -First 1
+          Start-Process $exe.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\termwall'
+          if (-not (Test-Path "$app\index.html")) { throw "nothing installed in $app" }
+          & "$app\python\python.exe" "$app\termwall_api.py" --version
+          Start-Sleep 4
+          $ok = $false
+          try { Invoke-WebRequest 'http://127.0.0.1:9002/theme' -UseBasicParsing | Out-Null } catch { $ok = $_.Exception.Response.StatusCode.value__ -eq 403 }
+          if (-not $ok) { throw 'the stats server did not answer after install' }
+          Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -Wait
+          Start-Sleep 2
+          if (Test-Path "$app\termwall_api.py") { throw 'uninstall left files behind' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: termwall-setup
+          path: build/termwall-setup-*.exe
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = Get-ChildItem build -Filter 'termwall-setup-*.exe' | Select-Object -First 1
+          gh release create $env:GITHUB_REF_NAME $exe.FullName --title "termwall $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes

@@ -35,7 +35,19 @@ All six keys, `#rrggbb` only; anything invalid is ignored and the defaults stay.
 The browser can't read CPU/GPU usage, so the wallpaper polls the local API once per
 second. The API binds to localhost only — it's never reachable from the LAN.
 
-## Setup
+## Install
+
+**Installer** (Windows 10/11, no admin, nothing else to install): `termwall-setup-X.Y.Z.exe`
+from [Releases](https://github.com/PantoYT/termwall/releases). It brings its own Python
+with psutil, starts the stats server at logon, and adds termwall to Wallpaper Engine (a
+junction in `projects\myprojects`) and to Lively Wallpaper's library, whichever you have.
+Uninstalling removes all of that. termwall needs one of those two to be shown as a
+wallpaper: [Lively](https://github.com/rocksdanister/lively) is free and open source.
+
+Building it: `installeruild.ps1` (needs Inno Setup 6); GitHub Actions builds it on every
+`v*` tag, installs it silently, checks the server answers, uninstalls, and publishes it.
+
+## Setup by hand
 
 ```
 pip install psutil

@@ -3,3 +3,4 @@ __pycache__/
 theme.json
 token.js
 termwall.json
+build/
