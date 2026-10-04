@@ -20,8 +20,8 @@ doesn't reload anything:
 ```
 
 All six keys, `#rrggbb` only; anything invalid is ignored and the defaults stay.
-`theme.json` is machine state, so it's gitignored. A switcher (mine is a private
-"rice" script bound to macro keys) just rewrites this file.
+`theme.json` is machine state, so it's gitignored. A switcher just rewrites this file;
+[livery](https://github.com/PantoYT/livery) does it on every wallpaper switch.
 
 ## Parts
 
@@ -61,22 +61,47 @@ file's mtime), so there's nothing to re-add.
 Inside Wallpaper Engine the currently playing track also appears under the clock
 (Wallpaper Engine's media integration); in a normal browser that line stays empty.
 
+## Looks
+
+Three layouts, three clocks and four bar styles, switched live (no wallpaper reload):
+
+| setting | values |
+|---|---|
+| `layout` | `fetch` (the fastfetch screen), `board` (btop-like boxes), `minimal` (a big clock and one line of stats) |
+| `clock` | `blocks` (solid pixel digits), `segments` (seven-segment), `text` (a thin font) |
+| `bars` | `blocks`, `shade`, `dots`, `line` |
+| `rotate` | minutes between layouts, `0` = off |
+
+```
+python termwall_api.py --style                # what is set now
+python termwall_api.py --style layout board   # change one
+python termwall_api.py --style rotate 20      # a different layout every 20 minutes
+```
+
+They live in `termwall.json` next to the API (gitignored). A `"style"` object inside
+`theme.json` wins over it, so a palette switcher can give each palette its own look:
+`{"bg": "#171717", ..., "style": {"layout": "minimal", "clock": "segments"}}`.
+
+Clock digits are one SVG per glyph, so they scale without the seams the old grid of
+cells had.
+
 ## Other systems
 
-- **Wallpaper Engine is Windows-only**, but `index.html` is a plain page — any tool
-  that can use a web page as a wallpaper works (e.g. Lively Wallpaper on Windows, web
-  wallpaper plugins on Linux desktops).
-- **The API is cross-platform** (psutil runs on Linux and macOS; `nvidia-smi` is
-  optional). CPU and motherboard names are read from the Windows registry, so elsewhere
-  they fall back to what `platform` reports. Only tested on Windows so far.
-- The prompt adapts: PowerShell style on Windows, `user@host:~$` elsewhere.
+- **Linux**: the API reads the distro from `/etc/os-release`, the CPU from
+  `/proc/cpuinfo`, the board from DMI, and skips pseudo filesystems (snaps, Docker
+  overlays). Tested on Ubuntu 24.04 (selftest and a live snapshot). The page shows a Tux
+  and a `user@host:~$` prompt there.
+- **What's missing on Linux is the wallpaper host**: Wallpaper Engine is Windows-only.
+  Any tool that can use a web page as a wallpaper works (KDE Plasma's web-page wallpaper
+  plugins, for example); none has been tried yet.
+- `nvidia-smi` is optional everywhere; without it the GPU shows `n/a`.
 
 ## API
 
 ```
 python termwall_api.py            # serve
 python termwall_api.py --once     # print one snapshot
-python termwall_api.py --selftest # 22 assertions
+python termwall_api.py --selftest # 34 assertions
 ```
 
 A background thread samples once per second (GPU every 2 s, processes every 3 s), so a

@@ -6,6 +6,8 @@ once per second, so a request never blocks on psutil or nvidia-smi.
     python termwall_api.py              # serve on 127.0.0.1:9002
     python termwall_api.py --once       # print one snapshot and exit
     python termwall_api.py --selftest
+    python termwall_api.py --style                  # the look: layout, clock, bars, rotation
+    python termwall_api.py --style layout board     # change one of them (the page follows live)
 
 Dependencies: psutil (CPU/RAM/disks/net/processes). The GPU comes from
 nvidia-smi if it exists; without it the "gpu" field is null.
@@ -44,6 +46,67 @@ def valid_theme(t) -> bool:
     return (isinstance(t, dict) and set(THEME_KEYS) <= set(t)
             and all(isinstance(t[k], str) and len(t[k]) == 7 and t[k][0] == "#"
                     and all(c in "0123456789abcdefABCDEF" for c in t[k][1:]) for k in THEME_KEYS))
+
+
+# The look, from termwall.json next to the API (or $TERMWALL_STYLE); a "style" object inside
+# theme.json wins over it, so a switcher (livery) can give every palette its own look.
+STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "termwall.json")
+STYLE_CHOICES = {
+    "layout": ("fetch", "board", "minimal"),   # fastfetch screen / btop-like boxes / a big clock
+    "clock": ("blocks", "segments", "text"),   # solid pixel digits / 7-segment / a thin font
+    "bars": ("blocks", "shade", "dots", "line"),
+}
+STYLE_DEFAULTS = {"layout": "fetch", "clock": "blocks", "bars": "blocks", "rotate": 0}
+
+
+def clean_style(raw) -> dict:
+    """Only known keys with allowed values; "rotate" = minutes between layouts (0 = off)."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, allowed in STYLE_CHOICES.items():
+        if raw.get(k) in allowed:
+            out[k] = raw[k]
+    r = raw.get("rotate")
+    if isinstance(r, int) and not isinstance(r, bool) and 0 <= r <= 1440:
+        out["rotate"] = r
+    return out
+
+
+def _json_file(path: str):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def read_style(style_path: str | None = None, theme_path: str | None = None) -> dict:
+    style_path = style_path or STYLE_FILE
+    theme_path = theme_path or THEME_FILE
+    themed = _json_file(theme_path)
+    return {**STYLE_DEFAULTS, **clean_style(_json_file(style_path)),
+            **clean_style(themed.get("style") if isinstance(themed, dict) else None)}
+
+
+def set_style(key: str, value: str, path: str | None = None) -> dict:
+    path = path or STYLE_FILE
+    cur = clean_style(_json_file(path))
+    if key == "rotate":
+        if not value.isdigit() or int(value) > 1440:
+            raise ValueError("rotate is minutes, 0-1440 (0 = off)")
+        cur["rotate"] = int(value)
+    elif key in STYLE_CHOICES:
+        if value not in STYLE_CHOICES[key]:
+            raise ValueError(f"{key} is one of {', '.join(STYLE_CHOICES[key])}")
+        cur[key] = value
+    else:
+        raise ValueError(f"unknown setting {key!r} (layout, clock, bars, rotate)")
+    with open(path, "a+", encoding="utf-8") as f:  # in place: no temp+rename (EFS-broken AppData)
+        f.seek(0)
+        f.truncate()
+        f.write(json.dumps(cur, indent=2) + "\n")
+    return cur
 
 
 PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
@@ -113,7 +176,56 @@ def _reg(path: str, name: str) -> str:
         return ""
 
 
+def parse_os_release(text: str) -> dict:
+    """/etc/os-release → {"NAME": ..., "PRETTY_NAME": ..., "ID": ...}."""
+    out = {}
+    for line in text.splitlines():
+        k, sep, v = line.partition("=")
+        if sep and k.strip() and not k.startswith("#"):
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def parse_cpuinfo(text: str) -> str:
+    for line in text.splitlines():
+        k, _, v = line.partition(":")
+        if k.strip() in ("model name", "Hardware", "Processor") and v.strip():
+            return v.strip()
+    return ""
+
+
+def _read(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def static_info_linux() -> dict:
+    rel = parse_os_release(_read("/etc/os-release"))
+    vendor = _read("/sys/devices/virtual/dmi/id/board_vendor").strip()
+    board = _read("/sys/devices/virtual/dmi/id/board_name").strip() or _read("/sys/devices/virtual/dmi/id/product_name").strip()
+    return {
+        "user": getpass.getuser(),
+        "host": socket.gethostname(),
+        "os": f"{rel.get('PRETTY_NAME') or platform.system()} {platform.machine()}".strip(),
+        "os_family": "linux",
+        "distro": rel.get("ID", ""),
+        "kernel": f"Linux {platform.release()}",
+        "board": f"{vendor} {board}".strip(),
+        "cpu_model": " ".join(parse_cpuinfo(_read("/proc/cpuinfo")).split()) or platform.processor(),
+        "cores": psutil.cpu_count(logical=True),
+        "physical_cores": psutil.cpu_count(logical=False),
+        "ram_total": psutil.virtual_memory().total,
+        "boot": psutil.boot_time(),
+        "shell": os.path.basename(os.environ.get("SHELL", "")) or "sh",
+    }
+
+
 def static_info() -> dict:
+    if sys.platform.startswith("linux"):
+        return static_info_linux()
     cv = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
     product = _reg(cv, "ProductName") or platform.system()
     build = _reg(cv, "CurrentBuild")
@@ -128,6 +240,8 @@ def static_info() -> dict:
         "user": getpass.getuser(),
         "host": socket.gethostname(),
         "os": f"{product} {display}".strip() + f" {platform.machine()}".rstrip(),
+        "os_family": "windows" if os.name == "nt" else platform.system().lower(),
+        "distro": "",
         "kernel": f"WIN32_NT {platform.version()}" + (f".{ubr}" if ubr else ""),
         "board": board,
         "cpu_model": " ".join(cpu.split()),
@@ -187,6 +301,9 @@ def read_gpu() -> dict | None:
 
 
 # ─── sampler ─────────────────────────────────────────────────────────────────
+
+PSEUDO_FS = ("squashfs", "overlay", "tmpfs", "devtmpfs", "efivarfs", "fuse.snapfuse", "nsfs")
+
 
 class Sampler:
     def __init__(self):
@@ -251,7 +368,8 @@ class Sampler:
 
         disks = []
         for part in psutil.disk_partitions(all=False):
-            if "cdrom" in part.opts or not part.fstype:
+            if "cdrom" in part.opts or not part.fstype or part.fstype in PSEUDO_FS \
+                    or part.mountpoint.startswith(("/snap", "/boot", "/var/lib/docker", "/run")):
                 continue
             try:
                 u = psutil.disk_usage(part.mountpoint)
@@ -317,9 +435,10 @@ def make_handler(sampler: Sampler, token: str):
                 self.end_headers()
                 return
             if path == "/stats":
-                body = json.dumps({**sampler.get(), "theme": read_theme(), "page": page_version()}).encode()
+                body = json.dumps({**sampler.get(), "theme": read_theme(), "style": read_style(),
+                                   "page": page_version()}).encode()
             elif path == "/theme":  # tiny, polled often so palette switches land fast
-                body = json.dumps({"theme": read_theme(), "page": page_version()}).encode()
+                body = json.dumps({"theme": read_theme(), "style": read_style(), "page": page_version()}).encode()
             elif path == "/health":
                 body = json.dumps(counts).encode()
             else:
@@ -412,6 +531,27 @@ def selftest() -> int:
             f.write("{broken")
         os.utime(p, ns=(1, 1))  # force a new mtime even on coarse-timestamp filesystems
         check(read_theme(p) is None, "broken JSON -> None")
+    with tempfile.TemporaryDirectory() as td:
+        sp, tp = os.path.join(td, "termwall.json"), os.path.join(td, "theme.json")
+        check(read_style(sp, tp) == STYLE_DEFAULTS, "no files -> default look")
+        set_style("layout", "board", sp)
+        set_style("rotate", "15", sp)
+        check(read_style(sp, tp)["layout"] == "board" and read_style(sp, tp)["rotate"] == 15, "termwall.json read")
+        with open(tp, "w", encoding="utf-8") as f:
+            json.dump({**good, "style": {"layout": "minimal", "clock": "comic-sans", "bars": "dots"}}, f)
+        st = read_style(sp, tp)
+        check(st["layout"] == "minimal" and st["bars"] == "dots" and st["clock"] == "blocks",
+              "theme.json style wins, unknown values dropped")
+        try:
+            set_style("layout", "nope", sp)
+            check(False, "bad layout refused")
+        except ValueError:
+            check(True, "bad layout refused")
+    rel = parse_os_release('NAME="Ubuntu"\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\nID=ubuntu\n# comment\n')
+    check(rel["PRETTY_NAME"] == "Ubuntu 24.04.1 LTS" and rel["ID"] == "ubuntu", "os-release parsed")
+    check(parse_cpuinfo("processor\t: 0\nmodel name\t: Intel(R) Core(TM) i5-4590 CPU @ 3.30GHz\n")
+          == "Intel(R) Core(TM) i5-4590 CPU @ 3.30GHz", "cpuinfo model name")
+    check(snap.get("os_family") in ("windows", "linux", "darwin"), "os_family for the logo")
     print(f"selftest: {ok}/{ok + fail} OK")
     return 0 if fail == 0 else 1
 
@@ -419,6 +559,15 @@ def selftest() -> int:
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(selftest())
+    if "--style" in sys.argv:
+        rest = sys.argv[sys.argv.index("--style") + 1:]
+        try:
+            st = set_style(rest[0], rest[1]) if len(rest) >= 2 else None
+        except ValueError as e:
+            sys.exit(f"error: {e}")
+        for k, v in read_style().items():
+            print(f"  {k:7} {v}" + (f"   ({' | '.join(STYLE_CHOICES[k])})" if k in STYLE_CHOICES else "   (minutes, 0 = off)"))
+        sys.exit(0)
     if "--once" in sys.argv:
         s = Sampler()
         s.sample()
