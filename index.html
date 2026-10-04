@@ -55,11 +55,7 @@ h3 b{color:var(--teal);font-weight:400}
 /* ── the clock: one SVG per glyph, so digits never show seams or gaps when scaled ── */
 .clock .time{display:flex;align-items:flex-end;gap:calc(var(--ch) * .14)}
 .clock .time svg{height:var(--ch);width:auto;display:block;overflow:visible}
-.clock .time .on{fill:var(--mint)} .clock .time .off{fill:var(--faint)} .clock .time .col{fill:var(--teal)}
-/* a thin sans for the text clock: Cascadia's dotted zero looked like a target at this size */
-.clock .time .txt{font:200 calc(var(--ch) * 1.36)/.78 "Segoe UI Variable Display","Segoe UI","Inter","Noto Sans",sans-serif;
-  color:var(--mint);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.clock .time .txt .colon{color:var(--teal)}
+.clock .time .on{fill:var(--mint)} .clock .time .col{fill:var(--teal)}
 .clock .date{color:var(--teal);letter-spacing:.14em;text-transform:lowercase}
 .clock .sec{color:var(--dim)}
 
@@ -80,7 +76,7 @@ h3 b{color:var(--teal);font-weight:400}
 /* ── layout: board (btop-like boxes) ── */
 #board{padding:72px 110px}
 #board .head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:34px}
-#board .clock{--ch:118px}
+#board .clock{--ch:84px}  /* the fetch clock's size everywhere: bigger blocks look crude */
 #board .clock .date{font-size:20px;margin-top:18px}
 #board .clock .sec{font-size:16px}
 #board .who{text-align:right;font-size:17px;line-height:1.6}
@@ -104,10 +100,10 @@ h3 b{color:var(--teal);font-weight:400}
 /* ── layout: minimal (a big clock) ── */
 #minimal{display:none;text-align:center}
 body.L-minimal #minimal{display:flex;flex-direction:column;align-items:center;justify-content:center}
-#minimal .clock{--ch:250px;display:flex;flex-direction:column;align-items:center}
-#minimal .clock .date{font-size:30px;margin-top:44px;letter-spacing:.3em}
+#minimal .clock{--ch:84px;display:flex;flex-direction:column;align-items:center}
+#minimal .clock .date{font-size:22px;margin-top:24px;letter-spacing:.24em}
 #minimal .clock .sec{font-size:20px;margin-top:6px}
-#minimal .line{margin-top:58px;font-size:20px;letter-spacing:.06em;color:var(--dim)}
+#minimal .line{margin-top:40px;font-size:20px;letter-spacing:.06em;color:var(--dim)}
 #minimal .line b{color:var(--mint);font-weight:400}
 #minimal .line i{font-style:normal;color:var(--teal)}
 #minimal .spark{margin-top:18px;font-size:26px;color:var(--faint)}
@@ -219,9 +215,9 @@ addEventListener("resize", fit); fit();
 
 // ── the look: layout, clock, bars (from termwall.json / theme.json through the API) ──
 const LAYOUTS = ["fetch", "board", "minimal"];
-let style = {layout: "fetch", clock: "blocks", bars: "blocks", rotate: 0}, styleKey = "";
+let style = {layout: "fetch", bars: "blocks", rotate: 0}, styleKey = "";
 const URLQ = new URLSearchParams(location.search);
-const URL_STYLE = Object.fromEntries(["layout", "clock", "bars"].filter(k => URLQ.get(k)).map(k => [k, URLQ.get(k)]));
+const URL_STYLE = Object.fromEntries(["layout", "bars"].filter(k => URLQ.get(k)).map(k => [k, URLQ.get(k)]));
 function applyStyle(st){
   if (!st) return;
   st = {...st, ...URL_STYLE};
@@ -439,27 +435,7 @@ function blockGlyph(ch){
   PIX[ch].forEach((r, y) => [...r].forEach((b, x) => { if (b === "1") d += `M${x} ${y}h1v1h-1z`; }));
   return `<svg viewBox="0 0 3 5" shape-rendering="crispEdges"><path class="on" d="${d}"/></svg>`;
 }
-// segments: a seven-segment display, the unlit segments faintly visible
-const SEG = {  // a b c d e f g
-  "0":"1111110", "1":"0110000", "2":"1101101", "3":"1111001", "4":"0110011",
-  "5":"1011011", "6":"1011111", "7":"1110000", "8":"1111111", "9":"1111011" };
-const SEG_SHAPES = [  // 60×100 cell, bars 10 thick with pointed ends
-  "M10 5 L15 0 H45 L50 5 L45 10 H15 Z",            // a  top
-  "M50 5 L55 10 V45 L50 50 L45 45 V10 Z",          // b  top right
-  "M50 50 L55 55 V90 L50 95 L45 90 V55 Z",         // c  bottom right
-  "M10 95 L15 90 H45 L50 95 L45 100 H15 Z",        // d  bottom
-  "M10 50 L15 55 V90 L10 95 L5 90 V55 Z",          // e  bottom left
-  "M10 5 L15 10 V45 L10 50 L5 45 V10 Z",           // f  top left
-  "M10 50 L15 45 H45 L50 50 L45 55 H15 Z" ];       // g  middle
-function segGlyph(ch){
-  if (ch === ":") return `<svg viewBox="0 0 16 100"><rect class="col" x="3" y="26" width="10" height="10"/><rect class="col" x="3" y="64" width="10" height="10"/></svg>`;
-  return `<svg viewBox="0 0 60 100">${SEG_SHAPES.map((d, i) => `<path class="${SEG[ch][i] === "1" ? "on" : "off"}" d="${d}"/>`).join("")}</svg>`;
-}
-function clockHTML(hhmm){
-  if (style.clock === "text") return `<span class="txt">${hhmm.replace(":", '<span class="colon">:</span>')}</span>`;
-  const glyph = style.clock === "segments" ? segGlyph : blockGlyph;
-  return [...hhmm].map(glyph).join("");
-}
+function clockHTML(hhmm){ return [...hhmm].map(blockGlyph).join(""); }
 function tick(){ const n = new Date();
   showLayout();
   const hhmm = n.toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit"});
@@ -467,7 +443,7 @@ function tick(){ const n = new Date();
   const sec = ":" + String(n.getSeconds()).padStart(2, "0");
   document.querySelectorAll("[data-clock]").forEach(c => {
     const html = clockHTML(hhmm), t = c.querySelector(".time");
-    if (t.dataset.k !== hhmm + style.clock) { t.innerHTML = html; t.dataset.k = hhmm + style.clock; }
+    if (t.dataset.k !== hhmm) { t.innerHTML = html; t.dataset.k = hhmm; }
     c.querySelector(".date").textContent = date;
     c.querySelector(".sec").textContent = sec;
   });

@@ -86,14 +86,13 @@ Inside Wallpaper Engine the currently playing track also appears under the clock
 ## Looks
 
 Preview any look in a browser without the API: `index.html?demo&layout=board` (add
-`&clock=segments`, `&bars=dots`, or a palette as `&bg=171717&accent=b5f4e7&secondary=7faca3&text=939fa1&dim=4b5252&faint=242626`).
+`&bars=dots`, or a palette as `&bg=171717&accent=b5f4e7&secondary=7faca3&text=939fa1&dim=4b5252&faint=242626`).
 
-Three layouts, three clocks and four bar styles, switched live (no wallpaper reload):
+Three layouts and four bar styles, switched live (no wallpaper reload):
 
 | setting | values |
 |---|---|
-| `layout` | `fetch` (the fastfetch screen), `board` (btop-like boxes), `minimal` (a big clock and one line of stats) |
-| `clock` | `blocks` (solid pixel digits), `segments` (seven-segment), `text` (a thin font) |
+| `layout` | `fetch` (the fastfetch screen), `board` (btop-like boxes), `minimal` (the clock and one line of stats) |
 | `bars` | `blocks`, `shade`, `dots`, `line` |
 | `rotate` | minutes between layouts, `0` = off |
 
@@ -105,10 +104,9 @@ python termwall_api.py --style rotate 20      # a different layout every 20 minu
 
 They live in `termwall.json` next to the API (gitignored). A `"style"` object inside
 `theme.json` wins over it, so a palette switcher can give each palette its own look:
-`{"bg": "#171717", ..., "style": {"layout": "minimal", "clock": "segments"}}`.
+`{"bg": "#171717", ..., "style": {"layout": "minimal", "bars": "dots"}}`.
 
-Clock digits are one SVG per glyph, so they scale without the seams the old grid of
-cells had.
+The clock's digits are one SVG per glyph, so there are no seams between their pixels.
 
 ## Other systems
 

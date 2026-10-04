@@ -6,7 +6,7 @@ once per second, so a request never blocks on psutil or nvidia-smi.
     python termwall_api.py              # serve on 127.0.0.1:9002
     python termwall_api.py --once       # print one snapshot and exit
     python termwall_api.py --selftest
-    python termwall_api.py --style                  # the look: layout, clock, bars, rotation
+    python termwall_api.py --style                  # the look: layout, bars, rotation
     python termwall_api.py --style layout board     # change one of them (the page follows live)
     python termwall_api.py --link-we                # show up in Wallpaper Engine (a junction in myprojects)
     python termwall_api.py --link-lively            # the same for Lively Wallpaper (its library)
@@ -57,11 +57,10 @@ def valid_theme(t) -> bool:
 # theme.json wins over it, so a switcher (livery) can give every palette its own look.
 STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "termwall.json")
 STYLE_CHOICES = {
-    "layout": ("fetch", "board", "minimal"),   # fastfetch screen / btop-like boxes / a big clock
-    "clock": ("blocks", "segments", "text"),   # solid pixel digits / 7-segment / a thin font
+    "layout": ("fetch", "board", "minimal"),   # fastfetch screen / btop-like boxes / the clock and one line
     "bars": ("blocks", "shade", "dots", "line"),
 }
-STYLE_DEFAULTS = {"layout": "fetch", "clock": "blocks", "bars": "blocks", "rotate": 0}
+STYLE_DEFAULTS = {"layout": "fetch", "bars": "blocks", "rotate": 0}
 
 
 def clean_style(raw) -> dict:
@@ -106,7 +105,7 @@ def set_style(key: str, value: str, path: str | None = None) -> dict:
             raise ValueError(f"{key} is one of {', '.join(STYLE_CHOICES[key])}")
         cur[key] = value
     else:
-        raise ValueError(f"unknown setting {key!r} (layout, clock, bars, rotate)")
+        raise ValueError(f"unknown setting {key!r} (layout, bars, rotate)")
     with open(path, "a+", encoding="utf-8") as f:  # in place: no temp+rename (EFS-broken AppData)
         f.seek(0)
         f.truncate()
@@ -705,9 +704,9 @@ def selftest() -> int:
         set_style("rotate", "15", sp)
         check(read_style(sp, tp)["layout"] == "board" and read_style(sp, tp)["rotate"] == 15, "termwall.json read")
         with open(tp, "w", encoding="utf-8") as f:
-            json.dump({**good, "style": {"layout": "minimal", "clock": "comic-sans", "bars": "dots"}}, f)
+            json.dump({**good, "style": {"layout": "minimal", "clock": "segments", "bars": "comic-sans"}}, f)
         st = read_style(sp, tp)
-        check(st["layout"] == "minimal" and st["bars"] == "dots" and st["clock"] == "blocks",
+        check(st["layout"] == "minimal" and st["bars"] == "blocks" and "clock" not in st,
               "theme.json style wins, unknown values dropped")
         try:
             set_style("layout", "nope", sp)
