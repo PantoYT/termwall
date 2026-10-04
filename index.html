@@ -210,9 +210,11 @@ function onForbidden(){
 // every copy of a part (the layouts share them) gets the same content
 function put(part, html){ document.querySelectorAll(`[data-p="${part}"]`).forEach(el => { el.innerHTML = html; }); }
 
-// scale the 1920×1080 stage to the actual screen
+// scale the 1920×1080 stage to the actual screen and center it: on 16:10 (1920×1200) or 21:9
+// the spare band is split evenly instead of all landing at the bottom or the right
 function fit(){ const s = Math.min(innerWidth/1920, innerHeight/1080);
-  document.getElementById("stage").style.transform = `scale(${s})`; }
+  const x = (innerWidth - 1920*s) / 2, y = (innerHeight - 1080*s) / 2;
+  document.getElementById("stage").style.transform = `translate(${x}px, ${y}px) scale(${s})`; }
 addEventListener("resize", fit); fit();
 
 // ── the look: layout, clock, bars (from termwall.json / theme.json through the API) ──
