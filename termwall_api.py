@@ -770,16 +770,32 @@ def make_handler(sampler: Sampler, token: str):
     return Handler
 
 
+class ExclusiveServer(ThreadingHTTPServer):
+    """http.server sets SO_REUSEADDR, and on Windows that lets a second server bind the same
+    port next to a running one: two servers, and the second one's token.js locks the wallpaper
+    out of the first. Exclusive use instead (Windows), or no reuse at all elsewhere."""
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def serve() -> None:
     sampler = Sampler()
+    try:  # bind before anything else: a second copy must not rewrite token.js
+        httpd = ExclusiveServer((HOST, PORT), make_handler(sampler, "pending"))
+    except OSError:
+        sys.exit(f"termwall's server is already running on {HOST}:{PORT} (check: http://{HOST}:{PORT}/health)")
+    httpd.RequestHandlerClass = make_handler(sampler, write_token())
     sampler.sample()
     threading.Thread(target=sampler.run, daemon=True).start()
+    print(f"termwall's server on http://{HOST}:{PORT} - Ctrl+C stops it")
     try:
-        httpd = ThreadingHTTPServer((HOST, PORT), make_handler(sampler, write_token()))
-    except OSError as e:
-        sys.exit(f"port {PORT} is taken ({e}) — is another termwall_api already running?")
-    print(f"termwall api on http://{HOST}:{PORT}/stats")
-    httpd.serve_forever()
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("stopped")
 
 
 def selftest() -> int:
@@ -817,6 +833,13 @@ def selftest() -> int:
     check(isinstance(snap["cpu"], float), "cpu is the usage percentage")
     check(json.loads(json.dumps(snap)) == snap, "JSON-serializable")
 
+    a = ExclusiveServer(("127.0.0.1", 0), make_handler(s, "x"))
+    try:
+        ExclusiveServer(("127.0.0.1", a.server_address[1]), make_handler(s, "x")).server_close()
+        check(False, "a second server can't bind a port in use")
+    except OSError:
+        check(True, "a second server can't bind a port in use")
+    a.server_close()
     tok = "abc123"
     check(request_ok("/stats?t=abc123", "127.0.0.1:9002", tok), "right token + loopback host")
     check(not request_ok("/stats", "127.0.0.1:9002", tok), "no token -> refused")
@@ -916,7 +939,28 @@ def selftest() -> int:
     return 0 if fail == 0 else 1
 
 
+USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall)
+
+  termwall                       run the stats server here (the installer runs it at logon)
+  termwall --style               every setting, its value and its choices
+  termwall --style KEY VALUE     change one (KEY default: remove it, --style reset: all)
+  termwall --theme NAME          a built-in palette (termwall --themes lists them)
+  termwall --once                print one sample
+  termwall --selftest            run the self-test
+  termwall --link-we | --unlink-we | --link-lively | --unlink-lively
+  termwall --stop                stop this folder's server
+  termwall --version
+"""
+
 if __name__ == "__main__":
+    if any(a in sys.argv for a in ("--help", "-h", "/?", "help")):
+        print(USAGE)
+        sys.exit(0)
+    unknown = [a for a in sys.argv[1:2] if a.startswith("-") and a not in (
+        "--selftest", "--version", "--link-we", "--unlink-we", "--link-lively", "--unlink-lively", "--stop",
+        "--themes", "--theme", "--style", "--once")]
+    if unknown:
+        sys.exit(f"unknown option {unknown[0]}\n\n{USAGE}")
     if "--selftest" in sys.argv:
         sys.exit(selftest())
     if "--version" in sys.argv:
