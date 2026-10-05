@@ -400,6 +400,13 @@ async function poll(){
     put("status", `<span class="bad">●</span> api offline · run <span class="g">python termwall_api.py</span>` + (failures > 1 ? ` <span class="d">(${failures})</span>` : ""));
   }
 }
+function demoDistro(){
+  const want = URLQ.get("distro");
+  if (want !== "cycle") return want;
+  const all = ["windows", ...Object.keys(window.DISTRO_LOGOS || {})];
+  const pick = all[Math.floor(Date.now() / 5000) % all.length];
+  return pick === "windows" ? null : pick;
+}
 // ?demo: made-up stats, no API needed — for previews and screenshots (nothing of this PC shown)
 const DEMO = URLQ.has("demo");
 function demoStats(){
@@ -423,15 +430,17 @@ function demoStats(){
             {name: "code.exe", cpu: 0.9, mem: 910e6, count: 9}, {name: "spotify.exe", cpu: 0.4, mem: 310e6, count: 5}],
     procs_total: 287,
     history: {cpu: hist(0.5, 0, 15, 40), gpu: hist(0.3, 2, 20, 50), down: hist(0.8, 1, 1e6, 4e6), up: hist(1.1, 3, 1e5, 3e5)},
-    ...(URLQ.get("distro") ? {os: `${({arch: "Arch Linux", "opensuse-tumbleweed": "openSUSE Tumbleweed", endeavouros: "EndeavourOS", cachyos: "CachyOS", ubuntu: "Ubuntu 24.04.3 LTS", debian: "Debian GNU/Linux 13", fedora: "Fedora Linux 43", linuxmint: "Linux Mint 22.2", manjaro: "Manjaro Linux", nixos: "NixOS 25.05", opensuse: "openSUSE Tumbleweed", gentoo: "Gentoo Linux"})[URLQ.get("distro")] || URLQ.get("distro")} x86_64`, os_family: "linux", distro: URLQ.get("distro"),
+    ...(demoDistro() ? {os: `${({arch: "Arch Linux", "opensuse-tumbleweed": "openSUSE Tumbleweed", endeavouros: "EndeavourOS", cachyos: "CachyOS", ubuntu: "Ubuntu 24.04.3 LTS", debian: "Debian GNU/Linux 13", fedora: "Fedora Linux 43", linuxmint: "Linux Mint 22.2", manjaro: "Manjaro Linux", nixos: "NixOS 25.05", opensuse: "openSUSE Tumbleweed", gentoo: "Gentoo Linux"})[demoDistro()] || demoDistro()} x86_64`, os_family: "linux", distro: demoDistro(),
         distro_like: "", kernel: "Linux 6.16.8-arch1-1", shell: "zsh"} : {}),
   };
 }
 if (DEMO) {
   // ?bg=171717&accent=b5f4e7&... : a palette for the demo (all six, hex without #)
   const keys = ["bg", "accent", "secondary", "text", "dim", "faint"];
+  var URL_PALETTE = keys.every(k => /^[0-9a-f]{6}$/i.test(URLQ.get(k) || ""));
   if (keys.every(k => /^[0-9a-f]{6}$/i.test(URLQ.get(k) || ""))) applyTheme(Object.fromEntries(keys.map(k => [k, "#" + URLQ.get(k)])));
-  const demo = () => { const s = demoStats(); ownTheme = distroTheme(s); if (!themeKey) applyTheme(null);
+  const demo = () => { const s = demoStats(); ownTheme = distroTheme(s);
+    if (!URL_PALETTE) applyTheme(null);
     applyStyle(style); render(s);
     put("status", `<span class="ok">●</span> demo · made-up stats`); };
   setInterval(demo, 1000); setTimeout(demo, 0);  // after the whole script ran (clock glyphs below)
