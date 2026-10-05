@@ -34,7 +34,10 @@ and run it. No admin rights, nothing else to install.
 - Uninstall: Windows' Apps list. It stops the server and removes the autostart and both
   links.
 
-A winget package is in review (`winget install termwall` will work once it's accepted).
+A winget package is in review; once it's accepted: `winget install PantoYT.termwall`.
+
+The installer also puts a `termwall` command on your PATH (in new terminals):
+`termwall --style layout board`, `termwall --version`.
 
 ## Configuration
 
@@ -51,12 +54,12 @@ reloading the wallpaper.
 | `rotate` | minutes between layouts, `0` = off |
 
 ```
-python termwall_api.py --style                # what is set now
-python termwall_api.py --style layout board   # change one
-python termwall_api.py --style rotate 20      # a different layout every 20 minutes
+termwall --style                # what is set now
+termwall --style layout board   # change one
+termwall --style rotate 20      # a different layout every 20 minutes
 ```
 
-(With the installer, `python` is `%LOCALAPPDATA%\Programs\termwall\python\python.exe`.)
+(`termwall` is the installer's command; from the repo it's `python termwall_api.py`.)
 
 **The palette**: `theme.json`, six `#rrggbb` colors:
 
@@ -89,7 +92,7 @@ files. The port, `127.0.0.1:9002`, is fixed.
 
 | problem | what to check |
 |---|---|
-| the wallpaper is empty, "api offline" at the bottom | the stats server isn't running: start it (`termwall-api.vbs`, or log off and on after the installer). `http://127.0.0.1:9002/stats` in a browser answers `403` when it runs (that's the token, below) |
+| the wallpaper is empty, "api offline" at the bottom | the stats server isn't running: start it (`termwall-api.vbs`, or log off and on after the installer). Check it with `http://127.0.0.1:9002/health` in a browser: it shows the version and request counters when it runs (`/stats` itself answers `403` in a browser, that's the token below, not an error) |
 | the server won't start: "port 9002 is taken" | another termwall is already running (a manual one next to the installed one?) |
 | GPU shows `n/a` | only NVIDIA cards are read (through `nvidia-smi`); AMD and Intel GPUs show `n/a` |
 | Wallpaper Engine shows an old version after an update | WE plays its own copy of termwall: use the installer, or a junction ([Manual setup](#manual-setup)) |
@@ -111,24 +114,40 @@ once a second.
 
 The server samples in the background (every second; GPU every 2 s, processes every 3 s), so
 a request never waits. Endpoints: `/stats` (everything), `/theme` (palette and look only,
-polled four times a second so a palette switch lands fast), `/health` (request counters).
+polled four times a second so a palette switch lands fast), `/health` (version and request
+counters, the only one without the token).
 
-`/stats` returns: `user`, `host`, `os`, `os_family`, `distro`, `kernel`, `board`,
-`cpu_model`, `cores`, `uptime`, `shell`, `cpu` and `cores_pct` (%), `cpu_freq`, `ram` and
-`swap` (used/total/percent), `gpu` (name, util, temp, vram, power; `null` without NVIDIA),
-`disks`, `net` (down/up bytes/s), `local_ip`, `procs` (top six by CPU), `procs_total`,
-`history` (last 60 s of cpu, gpu, down, up), plus `theme`, `style` and `page`.
+`/stats`, shortened from a real `--once` (sizes in bytes, rates in bytes/s, `cpu_freq`
+and GPU clock in MHz, `vram_*` in MiB, `uptime` in seconds, percentages 0-100):
+
+```json
+{"user": "…", "host": "…", "os": "Windows 11 Home 26H2 AMD64", "os_family": "windows",
+ "distro": "", "kernel": "…", "board": "…", "cpu_model": "…", "cores": 24, "shell": "PowerShell",
+ "cpu": 24.5, "cores_pct": [62.1, 54.6, 59.0, "…"], "cpu_freq": 3801, "uptime": 7047,
+ "ram": {"used": 20014813184, "total": 34254348288, "percent": 58.4},
+ "swap": {"used": 275476480, "total": 34359738368, "percent": 0.8},
+ "gpu": {"name": "NVIDIA GeForce RTX 3060", "util": 17.0, "temp": 42.0, "vram_used": 2257.0,
+         "vram_total": 12288.0, "power": 22.03, "clock": 502.0},
+ "net": {"down": 1727.9, "up": 7978.8}, "local_ip": "…",
+ "disks": [{"mount": "C:", "fs": "NTFS", "used": 180259778560, "total": 248909918208, "percent": 72.4}],
+ "procs": [{"name": "vmmemWSL", "cpu": 8.7, "mem": 633786368, "count": 1}], "procs_total": 437,
+ "history": {"cpu": ["… 60 values"], "gpu": ["…"], "down": ["…"], "up": ["…"]},
+ "theme": null, "style": {"layout": "fetch", "bars": "blocks", "rotate": 0}, "page": 1791231708683}
+```
+
+`gpu` is `null` without an NVIDIA card.
 
 **Privacy and security.** The server listens on `127.0.0.1` only, so nothing on your network
-can reach it. It shows your user name, computer name, local IP and process names, so it also
-doesn't answer every program on your PC: every request must carry a random token that the
-server writes next to the page (`token.js`) at each start. The wallpaper can read that file;
-a web page in your browser can't read your disk, so it gets `403`. The `Host` header must be
-`127.0.0.1` or `localhost` (no DNS rebinding). Nothing is sent anywhere.
+can reach it. Its answers include your user name, computer name, local IP and process names,
+so every request (but `/health`) must carry a random token from `token.js`, which the server
+rewrites at each start. Web pages in your browser can't read local files, so they get `403`.
+(Programs running as you can read the token, but they could read the same stats directly
+anyway.) The `Host` header must be `127.0.0.1` or `localhost`, against DNS rebinding.
+Nothing is sent anywhere.
 
 ## Manual setup
 
-From the repo, with Python 3.12+:
+From the repo (tested on Python 3.12 to 3.14):
 
 ```
 pip install psutil
@@ -176,6 +195,10 @@ The server works on Linux: it reads the distro from `/etc/os-release`, the CPU f
 `/proc/cpuinfo`, the board from DMI, and skips pseudo filesystems (snaps, Docker overlays).
 Tested on Ubuntu 24.04. The page shows your distro's logo (about 25 distros; derivatives get
 their parent's through `ID_LIKE`, the rest a Tux) and, without a `theme.json`, its colors.
+
+Running the server: `pip install psutil`, then `python3 termwall_api.py` (`--selftest`
+first, if you like). To start it at login, use your desktop's autostart or a systemd user
+unit; neither is set up for you.
 
 **Not tested: what puts the page on the desktop.** Wallpaper Engine and Lively are
 Windows-only; a tool that uses a web page as a wallpaper should work (KDE Plasma has

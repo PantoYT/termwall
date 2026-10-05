@@ -596,6 +596,15 @@ def make_handler(sampler: Sampler, token: str):
 
         def do_GET(self):
             path = self.path.split("?")[0]
+            host_ok = (self.headers.get("Host") or "").split(":")[0] in ("127.0.0.1", "localhost")
+            if path == "/health" and host_ok:  # "is it running?" - counters only, so no token needed
+                body = json.dumps({"termwall": __version__, **counts}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if not request_ok(self.path, self.headers.get("Host"), token):
                 counts["forbidden"] += 1
                 self.send_response(403)
@@ -607,14 +616,11 @@ def make_handler(sampler: Sampler, token: str):
                                    "page": page_version()}).encode()
             elif path == "/theme":  # tiny, polled often so palette switches land fast
                 body = json.dumps({"theme": read_theme(), "style": read_style(), "page": page_version()}).encode()
-            elif path == "/health":
-                body = json.dumps(counts).encode()
             else:
                 self.send_response(404)
                 self.end_headers()
                 return
-            if path != "/health":
-                counts["ok"] += 1
+            counts["ok"] += 1
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             # The wallpaper runs from file:// (origin "null"). * is fine: without the token

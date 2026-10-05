@@ -41,10 +41,15 @@ jobs:
           $app = Join-Path $env:LOCALAPPDATA 'Programs\termwall'
           if (-not (Test-Path "$app\index.html")) { throw "nothing installed in $app" }
           & "$app\python\python.exe" "$app\termwall_api.py" --version
+          & "$app\termwall.cmd" --version
+          if ($LASTEXITCODE -ne 0) { throw 'termwall.cmd failed' }
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $app) { throw 'not on PATH' }
           Start-Sleep 4
           $ok = $false
           try { Invoke-WebRequest 'http://127.0.0.1:9002/theme' -UseBasicParsing | Out-Null } catch { $ok = $_.Exception.Response.StatusCode.value__ -eq 403 }
           if (-not $ok) { throw 'the stats server did not answer after install' }
+          $h = Invoke-RestMethod 'http://127.0.0.1:9002/health'
+          if (-not $h.termwall) { throw '/health did not answer without a token' }
           (Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -PassThru).WaitForExit()
           Start-Sleep 5  # the uninstaller hands off to a temp copy of itself, which finishes the job
           if (Test-Path "$app\termwall_api.py") { throw 'uninstall left files behind' }

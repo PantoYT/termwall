@@ -30,6 +30,7 @@ WizardStyle=modern
 UninstallDisplayName=termwall
 UninstallDisplayIcon={app}\python\pythonw.exe
 CloseApplications=force
+ChangesEnvironment=yes
 RestartApplications=no
 
 [Files]
@@ -59,6 +60,44 @@ Type: files; Name: "{app}\termwall.json"
 Type: filesandordirs; Name: "{app}\__pycache__"
 
 [Code]
+const
+  EnvKey = 'Environment';
+
+// `termwall` in new terminals: {app} on the user's PATH (termwall.cmd lives there)
+procedure PathAdd(Dir: string);
+var
+  Paths: string;
+begin
+  if not RegQueryStringValue(HKCU, EnvKey, 'Path', Paths) then Paths := '';
+  if Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(Paths) + ';') > 0 then exit;
+  if (Paths <> '') and (Copy(Paths, Length(Paths), 1) <> ';') then Paths := Paths + ';';
+  RegWriteExpandStringValue(HKCU, EnvKey, 'Path', Paths + Dir);
+end;
+
+procedure PathRemove(Dir: string);
+var
+  Paths: string;
+  P: Integer;
+begin
+  if not RegQueryStringValue(HKCU, EnvKey, 'Path', Paths) then exit;
+  Paths := ';' + Paths + ';';
+  P := Pos(';' + Uppercase(Dir) + ';', Uppercase(Paths));
+  if P = 0 then exit;
+  Delete(Paths, P, Length(Dir) + 1);
+  Paths := Copy(Paths, 2, Length(Paths) - 2);
+  RegWriteExpandStringValue(HKCU, EnvKey, 'Path', Paths);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then PathAdd(ExpandConstant('{app}'));
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then PathRemove(ExpandConstant('{app}'));
+end;
+
 // An update replaces python.exe and friends: stop the running server of this install first.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
