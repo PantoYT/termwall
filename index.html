@@ -26,7 +26,7 @@ pre.logo .g{color:var(--grey)}
 .title .at{color:var(--grey);font-weight:400}
 .sep{color:var(--dim);margin:2px 0 10px}
 .row{display:flex;white-space:nowrap}
-.row .key{color:var(--mint);width:118px;flex:none}
+.row .key{color:var(--mint);width:140px;flex:none}
 .row .val{color:var(--grey);overflow:hidden;text-overflow:ellipsis}
 .bar{color:var(--teal);letter-spacing:-1px}
 .bar .e{color:var(--faint)}
@@ -431,7 +431,9 @@ function demoStats(){
     procs_total: 287,
     history: {cpu: hist(0.5, 0, 15, 40), gpu: hist(0.3, 2, 20, 50), down: hist(0.8, 1, 1e6, 4e6), up: hist(1.1, 3, 1e5, 3e5)},
     ...(demoDistro() ? {os: `${({arch: "Arch Linux", "opensuse-tumbleweed": "openSUSE Tumbleweed", endeavouros: "EndeavourOS", cachyos: "CachyOS", ubuntu: "Ubuntu 24.04.3 LTS", debian: "Debian GNU/Linux 13", fedora: "Fedora Linux 43", linuxmint: "Linux Mint 22.2", manjaro: "Manjaro Linux", nixos: "NixOS 25.05", opensuse: "openSUSE Tumbleweed", gentoo: "Gentoo Linux"})[demoDistro()] || demoDistro()} x86_64`, os_family: "linux", distro: demoDistro(),
-        distro_like: "", kernel: "Linux 6.16.8-arch1-1", shell: "zsh"} : {}),
+        distro_like: "", kernel: "Linux 6.16.8-arch1-1", shell: "zsh", board: "B650 AORUS ELITE AX",
+        disks: [{mount: "/", fs: "btrfs", used: 212e9, total: 1000e9, percent: 21.2}, {mount: "/home", fs: "ext4", used: 1310e9, total: 2000e9, percent: 65.5}],
+        local_ip: "192.168.1.20 (enp6s0)"} : {}),
   };
 }
 if (DEMO) {
