@@ -2,14 +2,18 @@
 
 A live system-stats wallpaper in the style of [fastfetch](https://github.com/fastfetch-cli/fastfetch):
 system info, per-core CPU, CPU and GPU history, memory, disks, network and top processes,
-refreshed every second. Three layouts, your distro's logo and colors on Linux, and a palette
-that can follow your wallpaper.
+refreshed every second. Five layouts, fourteen built-in themes, your distro's logo and colors
+on Linux, and a palette that can follow your wallpaper.
 
 ![termwall on Windows and twelve Linux distros](docs/distros.gif)
 
-| fetch | board | minimal |
+| fetch | board | htop |
 |---|---|---|
-| ![fetch layout](docs/fetch-arch.png) | ![board layout](docs/board.png) | ![minimal layout](docs/minimal.png) |
+| ![fetch layout](docs/fetch-arch.png) | ![board layout](docs/board.png) | ![htop layout](docs/htop.png) |
+
+| minimal | the amber theme with `effects crt,glow` | portrait |
+|---|---|---|
+| ![minimal layout](docs/minimal.png) | ![amber theme, CRT effect](docs/crt.png) | ![portrait layout](docs/portrait.png) |
 
 The pictures come from the demo mode (`index.html?demo`) with made-up stats.
 
@@ -45,21 +49,26 @@ termwall reads two optional files from its folder (`%LOCALAPPDATA%\Programs\term
 the installer, the repo folder otherwise). Both are picked up within a second, without
 reloading the wallpaper.
 
-**The look**: `termwall.json`, written by `--style`:
+**The look**: `termwall.json`, written by `termwall --style KEY VALUE` (`termwall --style`
+alone lists everything with its current value; `KEY default` removes one, `reset` all):
 
-| setting | values |
-|---|---|
-| `layout` | `fetch` (the fastfetch screen), `board` (boxes, like btop), `minimal` (the clock and one line) |
-| `bars` | `blocks`, `shade`, `dots`, `line` |
-| `rotate` | minutes between layouts, `0` = off |
-
-```
-termwall --style                # what is set now
-termwall --style layout board   # change one
-termwall --style rotate 20      # a different layout every 20 minutes
-```
-
-(`termwall` is the installer's command; from the repo it's `python termwall_api.py`.)
+| setting | values | default |
+|---|---|---|
+| `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side) | `fetch` |
+| `theme` | `auto`, `mint`, `catppuccin`, `gruvbox`, `nord`, `dracula`, `tokyo-night`, `rose-pine`, `everforest`, `kanagawa`, `solarized`, `one-dark`, `monokai`, `amber`, `phosphor` (`termwall --themes`, or `termwall --theme nord`) | `auto`: your distro's colors on Linux, mint on Windows |
+| `colors` | your own six colors, edited into `termwall.json` by hand: `"colors": {"bg": "#…", "accent": …}` | |
+| `bars` | `blocks`, `shade`, `dots`, `line` | `blocks` |
+| `hide` | any of `prompt`, `logo`, `info`, `clock`, `cpu`, `cores`, `gpu`, `memory`, `disks`, `network`, `procs`, `swatches`, `music`, `status` (`termwall --style hide gpu,procs`; `none` shows all) | nothing |
+| `clock` | `24h`, `12h` | `24h` |
+| `seconds` | `on`, `off` | `on` |
+| `date` | `long` (monday 5 october), `short`, `iso`, `none` | `long` |
+| `prompt` | the command in the prompt line, any text up to 60 characters | `fastfetch --live` |
+| `private` | `on` hides your user name, computer name and local IP (for streams and screenshots) | `off` |
+| `logo` | `auto`, `windows`, `tux`, `none`, or any distro's (`arch` on Windows works) | `auto` |
+| `font` | `cascadia`, `jetbrains`, `fira`, `iosevka`, `consolas`, `system` (the font must be installed; otherwise the next one in line is used) | `cascadia` |
+| `scale` | `0.8` to `1.1`: smaller fits more, larger makes everything bigger | `1.0` |
+| `effects` | `crt` (scanlines and a vignette), `glow` | none |
+| `rotate` | minutes between layouts, `0` = off | `0` |
 
 **The palette**: `theme.json`, six `#rrggbb` colors:
 
@@ -68,21 +77,25 @@ termwall --style rotate 20      # a different layout every 20 minutes
  "text": "#939fa1", "dim": "#4b5252", "faint": "#242626"}
 ```
 
-Those are also the defaults on Windows. A wallpaper switcher can rewrite this file on every
-switch: [livery](https://github.com/PantoYT/livery) (also by me) changes the wallpaper and
-recolors Discord, Spotify, browsers, RGB and termwall in one keypress. It may add a
-`"style"` object (`{"layout": "minimal"}`), so each palette can have its own look.
+A wallpaper switcher writes this file on every switch:
+[livery](https://github.com/PantoYT/livery) (also by me) changes the wallpaper and recolors
+Discord, Spotify, browsers, RGB and termwall in one keypress. While `theme.json` exists, its
+palette beats `theme` and `colors`; delete it to use your own again. It may also carry a
+`"style"` object (`{"layout": "minimal"}`) with any of the settings above, so each palette
+can have its own look.
 
 **What wins**, highest first:
 
 | source | sets | applies |
 |---|---|---|
-| URL `?layout=…&bars=…` | layout, bars | always (handy in a browser) |
+| URL `?layout=…&hide=…&effects=…` and the other settings | the look | always (handy in a browser) |
 | URL `?demo&bg=…&accent=…` (all six) | palette | demo mode only |
-| `"style"` in `theme.json` | layout, bars, rotate | always |
-| `termwall.json` | layout, bars, rotate | always |
+| `"style"` in `theme.json` | the look | always |
+| `termwall.json` | the look | always |
 | `theme.json` palette | colors | always |
-| your distro's colors | colors | Linux, when there is no `theme.json` |
+| `colors` in `termwall.json` | colors | without `theme.json` |
+| `theme` in `termwall.json` | colors | without `theme.json` and `colors` |
+| your distro's colors | colors | Linux, `theme` auto |
 | built-in defaults | everything | otherwise |
 
 `TERMWALL_THEME` and `TERMWALL_STYLE` (environment variables) point the server at other
@@ -186,8 +199,9 @@ Uninstall: delete the shortcut from `shell:startup`, then `python termwall_api.p
 it on every `v*` tag, installs it silently, checks the server answers, uninstalls it and
 publishes the release. `tools\fetch_logos.py` rebuilds `logos.js`.
 
-**Demo mode**: `index.html?demo` (made-up stats, no server), with `&layout=board`,
-`&bars=dots`, `&distro=arch` or `&distro=cycle` (every logo, five seconds each).
+**Demo mode**: `index.html?demo` (made-up stats, no server) takes the look's settings in the
+URL (`&layout=htop&effects=crt`), a palette (`&bg=…&accent=…`, all six, hex without `#`),
+`&distro=arch` or `&distro=cycle` (every logo, five seconds each).
 
 ## Linux
 

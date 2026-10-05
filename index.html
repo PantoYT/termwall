@@ -16,7 +16,7 @@ body{color:var(--grey);font:18px/1.34 var(--font);-webkit-font-smoothing:antiali
 /* designed for 1920×1080; scaled to fit whatever screen it lands on */
 #stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
 .layout{position:absolute;inset:0;display:none}
-body.L-fetch #fetch, body.L-board #board, body.L-minimal #minimal{display:block}
+body.L-fetch #fetch, body.L-board #board, body.L-minimal #minimal, body.L-htop #htop, body.L-portrait #portrait{display:block}
 .k{color:var(--mint)} .t{color:var(--teal)} .d{color:var(--dim)} .g{color:var(--grey)}
 .cursor{display:inline-block;width:.6em;height:1.1em;background:var(--mint);vertical-align:-.18em;animation:blink 1.1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
@@ -64,31 +64,33 @@ h3 b{color:var(--teal);font-weight:400}
 #fetch{padding:84px 140px 0 140px}
 #fetch .prompt{font-size:19px;margin-bottom:26px}
 #fetch .prompt .path{color:var(--teal)} #fetch .prompt .arrow{color:var(--mint)}
-#fetch .top{display:flex;gap:72px;align-items:flex-start}
+#fetch .top{display:flex;gap:64px;align-items:flex-start}
 #fetch .info{flex:1;min-width:0}
 #fetch .panels{display:grid;grid-template-columns:1.25fr 1fr;gap:56px;margin-top:22px}
-#fetch .clock{position:absolute;right:150px;top:430px;text-align:right;--ch:84px}
+#fetch .clock{align-self:flex-end;margin-left:auto;text-align:right;--ch:84px;flex:none}
 #fetch .clock .time{justify-content:flex-end}
 #fetch .clock .date{font-size:18px;margin-top:16px}
 #fetch .clock .sec{font-size:15px;margin-top:2px}
-#fetch .now{text-align:right;max-width:560px;margin:22px 0 0 auto}
+#fetch .now{text-align:right;max-width:460px;margin:22px 0 0 auto}
 #fetch .status{left:140px;bottom:92px}
 
 /* ── layout: board (btop-like boxes) ── */
-#board{padding:72px 110px}
+#board{padding:72px 110px 90px}
+body.L-board #board{display:flex;flex-direction:column}
 #board .head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:34px}
 #board .clock{--ch:84px}  /* the fetch clock's size everywhere: bigger blocks look crude */
 #board .clock .date{font-size:20px;margin-top:18px}
 #board .clock .sec{font-size:16px}
 #board .who{text-align:right;font-size:17px;line-height:1.6}
 #board .who .title{font-size:24px}
-#board .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:26px 30px}
-#board fieldset{border:1.5px solid var(--dim);padding:10px 22px 16px;min-width:0;height:300px;overflow:hidden}
+#board .grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:26px 30px;flex:1;min-height:0}
+#board fieldset{border:1.5px solid var(--dim);padding:10px 22px 16px;min-width:0;min-height:0;overflow:hidden}
 #board legend{padding:0 10px;color:var(--teal);font-size:15px;letter-spacing:.1em}
 #board legend b{color:var(--mint);font-weight:400}
 #board .big{font-size:40px;color:var(--mint);line-height:1.1;margin:4px 0 8px}
 #board .big small{font-size:16px;color:var(--dim)}
-#board .kv{display:flex;justify-content:space-between;white-space:nowrap;font-size:16px}
+#board .kv{display:flex;justify-content:space-between;gap:14px;white-space:nowrap;font-size:16px}
+#board .kv span:last-child{overflow:hidden;text-overflow:ellipsis}
 #board .kv span:first-child{color:var(--dim)}
 #board .cores{grid-template-columns:repeat(16,1fr);gap:6px 6px;margin-top:14px}
 #board .core .col{height:46px;width:12px}
@@ -111,6 +113,58 @@ body.L-minimal #minimal{display:flex;flex-direction:column;align-items:center;ju
 #minimal .spark .hi{color:var(--teal)}
 #minimal .now{margin-top:26px;max-width:900px}
 #minimal .status{left:0;right:0;bottom:40px}
+
+/* ── layout: htop (meters on top, a big process table) ── */
+#htop{padding:64px 90px}
+#htop .hmeters{display:grid;grid-template-columns:1fr 1fr 1.15fr;gap:0 48px;font-size:18px;line-height:1.5}
+#htop .meter{display:flex;white-space:pre}
+#htop .meter .ml{color:var(--teal);width:3.2em;text-align:right;padding-right:.4em}
+#htop .meter .mb{color:var(--text-strong, var(--grey));font-weight:700}
+#htop .meter .mf{color:var(--mint)}
+#htop .meter .mf.hot{color:var(--teal)}
+#htop .meter .me{color:var(--faint)}
+#htop .meter .mv{color:var(--grey)}
+#htop .hinfo{margin-top:6px;color:var(--dim)} #htop .hinfo b{color:var(--mint);font-weight:400}
+#htop .clock{--ch:56px;margin-top:22px}
+#htop .clock .date{font-size:16px;margin-top:10px}
+#htop .clock .sec{font-size:14px}
+#htop .htable{width:100%;border-collapse:collapse;margin-top:40px;font-size:19px}
+#htop .htable th{background:var(--teal);color:var(--bg);font-weight:700;text-align:left;padding:2px 12px}
+#htop .htable td{padding:3px 12px;white-space:nowrap;color:var(--grey)}
+#htop .htable tr:first-child td{background:var(--faint);color:var(--mint)}
+#htop .htable .r{text-align:right}
+#htop .htable .c{color:var(--mint)}
+#htop .htable .m{color:var(--teal)}
+#htop .now{margin-top:18px}
+#htop .status{left:90px;bottom:40px}
+
+/* ── layout: portrait (a monitor turned on its side: 1080×1920) ── */
+#portrait{padding:110px 90px}
+body.L-portrait #portrait{display:flex;flex-direction:column;justify-content:center}
+#portrait .clock{--ch:84px;display:flex;flex-direction:column;align-items:center;margin-bottom:56px}
+#portrait .clock .date{font-size:22px;margin-top:22px;letter-spacing:.2em}
+#portrait .clock .sec{font-size:18px;margin-top:4px}
+#portrait pre.logo{width:fit-content;margin:0 auto 34px}
+#portrait .title{font-size:24px}
+#portrait .panel{margin-top:30px}
+#portrait .cores{grid-template-columns:repeat(16,1fr);gap:6px 6px}
+#portrait .core .col{height:46px;width:12px}
+#portrait .now{margin-top:30px;text-align:center}
+#portrait .status{left:90px;bottom:60px}
+
+/* ── what to hide, effects ── */
+body.hide-prompt [data-sec~="prompt"], body.hide-logo [data-sec~="logo"], body.hide-info [data-sec~="info"],
+body.hide-clock [data-sec~="clock"], body.hide-cpu [data-sec~="cpu"], body.hide-cores [data-sec~="cores"],
+body.hide-gpu [data-sec~="gpu"], body.hide-memory [data-sec~="memory"], body.hide-disks [data-sec~="disks"],
+body.hide-network [data-sec~="network"], body.hide-procs [data-sec~="procs"], body.hide-swatches [data-sec~="swatches"],
+body.hide-music [data-sec~="music"], body.hide-status [data-sec~="status"]{display:none !important}
+/* scanlines and a soft vignette over everything; pointer-events off, it's only paint */
+body.fx-crt #stage::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:10;
+  background:repeating-linear-gradient(to bottom, rgba(0,0,0,.22) 0 1px, transparent 1px 3px),
+             radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,.45) 100%)}
+body.fx-glow .k, body.fx-glow .pct, body.fx-glow .title, body.fx-glow .big, body.fx-glow .t,
+body.fx-glow .bar, body.fx-glow .spark, body.fx-glow .meter .mf{text-shadow:0 0 7px currentColor}
+body.fx-glow .clock .time svg{filter:drop-shadow(0 0 7px var(--mint))}
 </style>
 </head>
 <body class="L-fetch">
@@ -118,74 +172,111 @@ body.L-minimal #minimal{display:flex;flex-direction:column;align-items:center;ju
 
   <!-- fetch: the fastfetch screen -->
   <section class="layout" id="fetch">
-    <div class="prompt" data-p="prompt"></div>
-    <div class="clock" data-clock><div class="time"></div><div class="date"></div><div class="sec"></div>
-      <div class="now" data-p="now"></div></div>
+    <div class="prompt" data-p="prompt" data-sec="prompt"></div>
     <div class="top">
-      <pre class="logo" data-p="logo"></pre>
-      <div class="info">
+      <pre class="logo" data-p="logo" data-sec="logo"></pre>
+      <div class="info" data-sec="info">
         <div class="title" data-p="title"></div>
         <div class="sep" data-p="sep">-----------</div>
         <div data-p="rows"></div>
-        <div class="swatches" data-p="swatches"></div>
+        <div class="swatches" data-p="swatches" data-sec="swatches"></div>
       </div>
+      <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div>
+        <div class="now" data-p="now" data-sec="music"></div></div>
     </div>
     <div class="panels">
       <div>
-        <h3>CPU · <b data-p="cpu-sum">0%</b> · 60s</h3>
-        <div class="spark" data-p="spark-cpu"></div>
-        <h3 style="margin-top:12px">CORES · <b data-p="core-count">0</b> threads</h3>
-        <div class="cores" data-p="cores"></div>
+        <div data-sec="cpu"><h3>CPU · <b data-p="cpu-sum">0%</b> · 60s</h3>
+        <div class="spark" data-p="spark-cpu"></div></div>
+        <div data-sec="cores"><h3 style="margin-top:12px">CORES · <b data-p="core-count">0</b> threads</h3>
+        <div class="cores" data-p="cores"></div></div>
       </div>
       <div>
-        <h3>GPU · <b data-p="gpu-sum">-</b> · 60s</h3>
-        <div class="spark m" data-p="spark-gpu"></div>
-        <h3 style="margin-top:12px">TOP · <b data-p="proc-count">0</b> processes</h3>
-        <table class="proc"><thead><tr><th>name</th><th style="text-align:right">cpu</th><th style="text-align:right">mem</th></tr></thead><tbody data-p="procs"></tbody></table>
+        <div data-sec="gpu"><h3>GPU · <b data-p="gpu-sum">-</b> · 60s</h3>
+        <div class="spark m" data-p="spark-gpu"></div></div>
+        <div data-sec="procs"><h3 style="margin-top:12px">TOP · <b data-p="proc-count">0</b> processes</h3>
+        <table class="proc"><thead><tr><th>name</th><th style="text-align:right">cpu</th><th style="text-align:right">mem</th></tr></thead><tbody data-p="procs"></tbody></table></div>
       </div>
     </div>
-    <div class="status" data-p="status">connecting to termwall api…</div>
+    <div class="status" data-p="status" data-sec="status">connecting to termwall api…</div>
   </section>
 
   <!-- board: boxes, like btop -->
   <section class="layout" id="board">
     <div class="head">
-      <div class="clock" data-clock><div class="time"></div><div class="date"></div><div class="sec"></div></div>
+      <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div></div>
       <div class="who">
-        <div class="title" data-p="title"></div>
-        <div data-p="who"></div>
-        <div class="now" data-p="now"></div>
+        <div class="title" data-p="title" data-sec="info"></div>
+        <div data-p="who" data-sec="info"></div>
+        <div class="now" data-p="now" data-sec="music"></div>
       </div>
     </div>
     <div class="grid">
-      <fieldset><legend>CPU · <b data-p="cpu-sum">0%</b></legend>
+      <fieldset data-sec="cpu"><legend>CPU · <b data-p="cpu-sum">0%</b></legend>
         <div class="spark" data-p="spark-cpu"></div>
-        <div class="cores" data-p="cores"></div>
+        <div class="cores" data-p="cores" data-sec="cores"></div>
         <div class="kv" style="margin-top:12px"><span>model</span><span data-p="cpu-model"></span></div>
       </fieldset>
-      <fieldset><legend>GPU · <b data-p="gpu-sum">-</b></legend>
+      <fieldset data-sec="gpu"><legend>GPU · <b data-p="gpu-sum">-</b></legend>
         <div class="spark m" data-p="spark-gpu"></div>
         <div data-p="gpu-box"></div>
       </fieldset>
-      <fieldset><legend>MEMORY · <b data-p="mem-sum">0%</b></legend>
+      <fieldset data-sec="memory"><legend>MEMORY · <b data-p="mem-sum">0%</b></legend>
         <div data-p="mem-box"></div>
       </fieldset>
-      <fieldset><legend>DISKS</legend><div data-p="disk-box"></div></fieldset>
-      <fieldset><legend>NETWORK</legend><div data-p="net-box"></div></fieldset>
-      <fieldset><legend>PROCESSES · <b data-p="proc-count">0</b></legend>
+      <fieldset data-sec="disks"><legend>DISKS</legend><div data-p="disk-box"></div></fieldset>
+      <fieldset data-sec="network"><legend>NETWORK</legend><div data-p="net-box"></div></fieldset>
+      <fieldset data-sec="procs"><legend>PROCESSES · <b data-p="proc-count">0</b></legend>
         <table class="proc"><tbody data-p="procs"></tbody></table>
       </fieldset>
     </div>
-    <div class="status" data-p="status"></div>
+    <div class="status" data-p="status" data-sec="status"></div>
   </section>
 
   <!-- minimal: a big clock and one line -->
   <section class="layout" id="minimal">
-    <div class="clock" data-clock><div class="time"></div><div class="date"></div><div class="sec"></div></div>
+    <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div></div>
     <div class="line" data-p="line"></div>
-    <div class="spark" data-p="spark-min"></div>
-    <div class="now" data-p="now"></div>
-    <div class="status" data-p="status"></div>
+    <div class="spark" data-p="spark-min" data-sec="cpu"></div>
+    <div class="now" data-p="now" data-sec="music"></div>
+    <div class="status" data-p="status" data-sec="status"></div>
+  </section>
+
+  <!-- htop: meters and a big process table -->
+  <section class="layout" id="htop">
+    <div class="hmeters">
+      <div data-p="hcores-a" data-sec="cpu cores"></div>
+      <div data-p="hcores-b" data-sec="cpu cores"></div>
+      <div>
+        <div data-p="hmeters"></div>
+        <div class="hinfo" data-p="hinfo" data-sec="info"></div>
+        <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div></div>
+      </div>
+    </div>
+    <table class="htable" data-sec="procs">
+      <thead><tr><th>NAME</th><th class="r">COUNT</th><th class="r">CPU%</th><th class="r">MEM</th><th>CPU</th></tr></thead>
+      <tbody data-p="hprocs"></tbody></table>
+    <div class="now" data-p="now" data-sec="music"></div>
+    <div class="status" data-p="status" data-sec="status"></div>
+  </section>
+
+  <!-- portrait: everything stacked, for a monitor on its side -->
+  <section class="layout" id="portrait">
+    <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div></div>
+    <pre class="logo" data-p="logo" data-sec="logo"></pre>
+    <div class="info" data-sec="info">
+      <div class="title" data-p="title"></div>
+      <div class="sep" data-p="sep">-----------</div>
+      <div data-p="rows"></div>
+      <div class="swatches" data-p="swatches" data-sec="swatches"></div>
+    </div>
+    <div class="panel" data-sec="cpu"><h3>CPU · <b data-p="cpu-sum">0%</b> · 60s</h3><div class="spark" data-p="spark-cpu"></div></div>
+    <div class="panel" data-sec="cores"><h3>CORES · <b data-p="core-count">0</b> threads</h3><div class="cores" data-p="cores"></div></div>
+    <div class="panel" data-sec="gpu"><h3>GPU · <b data-p="gpu-sum">-</b> · 60s</h3><div class="spark m" data-p="spark-gpu"></div></div>
+    <div class="panel" data-sec="procs"><h3>TOP · <b data-p="proc-count">0</b> processes</h3>
+      <table class="proc"><thead><tr><th>name</th><th style="text-align:right">cpu</th><th style="text-align:right">mem</th></tr></thead><tbody data-p="procs"></tbody></table></div>
+    <div class="now" data-p="now" data-sec="music"></div>
+    <div class="status" data-p="status" data-sec="status"></div>
   </section>
 </div>
 
@@ -208,24 +299,54 @@ function onForbidden(){
 // every copy of a part (the layouts share them) gets the same content
 function put(part, html){ document.querySelectorAll(`[data-p="${part}"]`).forEach(el => { el.innerHTML = html; }); }
 
-// scale the 1920×1080 stage to the actual screen and center it: on 16:10 (1920×1200) or 21:9
-// the spare band is split evenly instead of all landing at the bottom or the right
-function fit(){ const s = Math.min(innerWidth/1920, innerHeight/1080);
-  const x = (innerWidth - 1920*s) / 2, y = (innerHeight - 1080*s) / 2;
-  document.getElementById("stage").style.transform = `translate(${x}px, ${y}px) scale(${s})`; }
-addEventListener("resize", fit); fit();
+// The stage is designed at 1920×1080 (portrait: 1080×1920) and scaled to the screen, centered:
+// on 16:10 or 21:9 the spare band is split evenly. "scale" makes the design area smaller or
+// larger, so everything on it grows or shrinks.
+function stageSize(){
+  const sc = Number(style.scale) || 1;
+  const [w, h] = currentLayout() === "portrait" ? [1080, 1920] : [1920, 1080];
+  return [Math.round(w / sc), Math.round(h / sc)];
+}
+function fit(){
+  const [w, h] = stageSize(), stage = document.getElementById("stage");
+  stage.style.width = w + "px"; stage.style.height = h + "px";
+  const s = Math.min(innerWidth / w, innerHeight / h);
+  stage.style.transform = `translate(${(innerWidth - w * s) / 2}px, ${(innerHeight - h * s) / 2}px) scale(${s})`;
+}
+addEventListener("resize", fit);
 
 // ── the look: layout, clock, bars (from termwall.json / theme.json through the API) ──
-const LAYOUTS = ["fetch", "board", "minimal"];
-let style = {layout: "fetch", bars: "blocks", rotate: 0}, styleKey = "";
+const LAYOUTS = ["fetch", "board", "minimal", "htop", "portrait"];
+let style = {layout: "fetch", bars: "blocks", rotate: 0, clock: "24h", seconds: true, date: "long", hide: [],
+             private: false, font: "cascadia", scale: 1, effects: [], logo: "auto"}, styleKey = "";
 const URLQ = new URLSearchParams(location.search);
-const URL_STYLE = Object.fromEntries(["layout", "bars"].filter(k => URLQ.get(k)).map(k => [k, URLQ.get(k)]));
+// ?layout=htop&hide=gpu,procs&effects=crt&font=jetbrains&clock=12h... (handy in a browser; wins over the files)
+const URL_STYLE = {};
+for (const k of ["layout", "bars", "clock", "date", "font", "logo", "prompt"]) if (URLQ.get(k) !== null) URL_STYLE[k] = URLQ.get(k);
+for (const k of ["hide", "effects"]) if (URLQ.get(k) !== null) URL_STYLE[k] = URLQ.get(k).split(",").filter(Boolean);
+for (const k of ["seconds", "private"]) if (URLQ.get(k) !== null) URL_STYLE[k] = ["on", "1", "true"].includes(URLQ.get(k));
+if (URLQ.get("scale")) URL_STYLE.scale = Math.min(1.1, Math.max(0.8, Number(URLQ.get("scale")) || 1));
+const FONTS = {
+  cascadia: '"Cascadia Mono","Cascadia Code",Consolas,monospace',
+  jetbrains: '"JetBrains Mono","JetBrainsMono Nerd Font","Cascadia Mono",Consolas,monospace',
+  fira: '"Fira Code","FiraCode Nerd Font","Fira Mono","Cascadia Mono",Consolas,monospace',
+  iosevka: '"Iosevka","Iosevka Term","Cascadia Mono",Consolas,monospace',
+  consolas: 'Consolas,"Cascadia Mono",monospace',
+  system: 'ui-monospace,"Cascadia Mono",Consolas,monospace',
+};
+const SECTIONS = ["prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
+                  "procs", "swatches", "music", "status"];
 function applyStyle(st){
   if (!st) return;
-  st = {...st, ...URL_STYLE};
+  st = {...style, ...st, ...URL_STYLE};
   const key = JSON.stringify(st);
   if (key === styleKey) return;
-  styleKey = key; style = st; showLayout(); tick();
+  styleKey = key; style = st;
+  const b = document.body, hidden = new Set(style.hide || []), fx = new Set(style.effects || []);
+  for (const sec of SECTIONS) b.classList.toggle("hide-" + sec, hidden.has(sec));
+  for (const e of ["crt", "glow"]) b.classList.toggle("fx-" + e, fx.has(e));
+  document.documentElement.style.setProperty("--font", FONTS[style.font] || FONTS.cascadia);
+  showLayout(); fit(); tick();
   if (last) render(last);
 }
 function currentLayout(){
@@ -238,6 +359,7 @@ function showLayout(){
   if (!document.body.classList.contains(want)) {
     document.body.classList.remove(...LAYOUTS.map(l => "L-" + l));
     document.body.classList.add(want);
+    fit();  // portrait has its own stage size
   }
 }
 
@@ -298,15 +420,32 @@ function row(k, v){ return `<div class="row"><span class="key">${k ? k + ":" : "
 const kv = (k, v) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`;
 
 let last = null;
+// "logo": auto (the system's), windows, tux, none, or any distro's (an Arch logo on Windows...)
+function pickLogo(s){
+  const want = style.logo || "auto";
+  if (want === "windows") return WIN_LOGO;
+  if (want === "tux") return TUX;
+  if (want !== "auto" && want !== "none") return DISTRO_LOGOS[want] ? linuxLogo({distro: want}) : TUX;
+  return s.os_family === "linux" ? linuxLogo(s) : WIN_LOGO;
+}
+function meter(label, p, n, text){
+  const f = Math.round(Math.max(0, Math.min(100, p)) / 100 * n);
+  return `<div class="meter"><span class="ml">${esc(label)}</span><span class="mb">[</span><span class="mf${p > 80 ? " hot" : ""}">${"|".repeat(f)}</span>` +
+         `<span class="me">${" ".repeat(Math.max(0, n - f - text.length))}</span><span class="mv">${esc(text)}</span><span class="mb">]</span></div>`;
+}
 function render(s){
+  if (style.private) s = {...s, user: "user", host: "computer", local_ip: "hidden"};
   last = s;
   const linux = s.os_family === "linux";
+  const hidden = new Set(style.hide || []);
+  document.body.classList.toggle("hide-logo", hidden.has("logo") || style.logo === "none");
   const g = s.gpu;
   put("title", `<span class="k">${esc(s.user)}</span><span class="at">@</span><span class="k">${esc(s.host)}</span>`);
+  const cmd = esc(style.prompt ?? "fastfetch --live");
   put("prompt", linux
-    ? `<span class="k">${esc(s.user)}@${esc(s.host)}</span>:<span class="path">~</span><span class="arrow">$</span> fastfetch --live <span class="cursor"></span>`
-    : `<span class="t">PS</span> <span class="path">C:\\Users\\${esc(s.user)}</span><span class="arrow">&gt;</span> fastfetch --live <span class="cursor"></span>`);
-  put("logo", linux ? linuxLogo(s) : WIN_LOGO);
+    ? `<span class="k">${esc(s.user)}@${esc(s.host)}</span>:<span class="path">~</span><span class="arrow">$</span> ${cmd} <span class="cursor"></span>`
+    : `<span class="t">PS</span> <span class="path">C:\\Users\\${esc(s.user)}</span><span class="arrow">&gt;</span> ${cmd} <span class="cursor"></span>`);
+  put("logo", pickLogo(s));
   // a tall distro logo (fastfetch's run to 20 rows) shrinks to the Windows logo's height
   document.querySelectorAll('[data-p="logo"]').forEach(el => {
     const rows = el.textContent.split("\n").length;
@@ -323,12 +462,12 @@ function render(s){
     row("Shell", esc(s.shell)),
     row("CPU", `${esc(s.cpu_model)} (${s.cores}) @ ${((s.cpu_freq || 0)/1000).toFixed(2)} GHz`),
     row("", `${bar(s.cpu)} <span class="pct">${s.cpu.toFixed(0)}%</span>`),
-    g ? row("GPU", `${esc(g.name)} · ${g.temp ?? "-"}°C · ${g.power != null ? g.power.toFixed(0)+" W" : ""}`) : row("GPU", "-"),
-    g ? row("", `${bar(g.util ?? 0)} <span class="pct">${(g.util ?? 0).toFixed(0)}%</span>  <span class="d">vram</span> ${(g.vram_used/1024).toFixed(1)} / ${(g.vram_total/1024).toFixed(0)} GiB`) : "",
-    row("Memory", `${gib(s.ram.used)} / ${gib(s.ram.total)} <span class="pct">(${s.ram.percent.toFixed(0)}%)</span>  <span class="d">swap</span> ${gib(s.swap.used)}`),
-    row("", bar(s.ram.percent)),
-    ...s.disks.slice(0, 4).map(d => row(`Disk (${esc(d.mount)})`, `${bar(d.percent, 12)} ${gib(d.used)} / ${gib(d.total)} <span class="d">${esc(d.fs)}</span>`)),
-    row("Network", `<span class="k">↓</span> ${rate(s.net.down)}  <span class="t">↑</span> ${rate(s.net.up)}  <span class="d">·</span> ${esc(s.local_ip)}`),
+    hidden.has("gpu") ? "" : g ? row("GPU", `${esc(g.name)} · ${g.temp ?? "-"}°C · ${g.power != null ? g.power.toFixed(0)+" W" : ""}`) : row("GPU", "-"),
+    !hidden.has("gpu") && g ? row("", `${bar(g.util ?? 0)} <span class="pct">${(g.util ?? 0).toFixed(0)}%</span>  <span class="d">vram</span> ${(g.vram_used/1024).toFixed(1)} / ${(g.vram_total/1024).toFixed(0)} GiB`) : "",
+    hidden.has("memory") ? "" : row("Memory", `${gib(s.ram.used)} / ${gib(s.ram.total)} <span class="pct">(${s.ram.percent.toFixed(0)}%)</span>  <span class="d">swap</span> ${gib(s.swap.used)}`),
+    hidden.has("memory") ? "" : row("", bar(s.ram.percent)),
+    ...(hidden.has("disks") ? [] : s.disks).slice(0, 4).map(d => row(`Disk (${esc(d.mount)})`, `${bar(d.percent, 12)} ${gib(d.used)} / ${gib(d.total)} <span class="d">${esc(d.fs)}</span>`)),
+    hidden.has("network") ? "" : row("Network", `<span class="k">↓</span> ${rate(s.net.down)}  <span class="t">↑</span> ${rate(s.net.up)}  <span class="d">·</span> ${esc(s.local_ip)}`),
   ].join(""));
   put("who", [esc(s.os), esc(s.kernel), "up " + uptime(s.uptime)].map(x => `<div class="d">${x}</div>`).join(""));
   put("cpu-sum", s.cpu.toFixed(0) + "%");
@@ -340,7 +479,7 @@ function render(s){
   put("cores", s.cores_pct.map((p, i) =>
     `<div class="core"><div class="col${p > 80 ? " hot" : ""}"><i style="height:${Math.max(2, p)}%"></i></div><small>${i}</small></div>`).join(""));
   put("proc-count", s.procs_total);
-  put("procs", s.procs.map(p =>
+  put("procs", s.procs.slice(0, 6).map(p =>
     `<tr><td class="n">${esc(p.name.replace(/\.exe$/i, ""))}${p.count > 1 ? ` <span class="d">×${p.count}</span>` : ""}</td><td class="c">${p.cpu.toFixed(1)}%</td><td class="m">${(p.mem/1024**2).toFixed(0)} MiB</td></tr>`).join(""));
   // board boxes
   put("gpu-box", g
@@ -364,9 +503,28 @@ function render(s){
     `<div class="big" style="font-size:28px;margin-top:10px"><span class="t">↑</span> ${rate(s.net.up)}</div>` +
     `<div class="spark m">${spark(s.history.up || [], top, 34)}</div>` + kv("address", esc(s.local_ip)));
   // minimal
-  put("line", `cpu <b>${s.cpu.toFixed(0)}%</b>   ram <b>${s.ram.percent.toFixed(0)}%</b>` +
-    (g ? `   gpu <b>${(g.util ?? 0).toFixed(0)}%</b>` : "") +
-    `   <i>↓</i> ${rate(s.net.down)}   <i>↑</i> ${rate(s.net.up)}`);
+  put("line", [hidden.has("cpu") ? "" : `cpu <b>${s.cpu.toFixed(0)}%</b>`,
+               hidden.has("memory") ? "" : `ram <b>${s.ram.percent.toFixed(0)}%</b>`,
+               g && !hidden.has("gpu") ? `gpu <b>${(g.util ?? 0).toFixed(0)}%</b>` : "",
+               hidden.has("network") ? "" : `<i>↓</i> ${rate(s.net.down)}   <i>↑</i> ${rate(s.net.up)}`]
+    .filter(Boolean).join("   "));
+  // htop: a meter per core in two columns, then memory, swap, GPU, network
+  const half = Math.ceil(s.cores_pct.length / 2), mw = s.cores_pct.length > 32 ? 22 : 30;
+  const coreMeter = (p, i) => meter(String(i), p, mw, p.toFixed(1) + "%");
+  put("hcores-a", s.cores_pct.slice(0, half).map((p, i) => coreMeter(p, i)).join(""));
+  put("hcores-b", s.cores_pct.slice(half).map((p, i) => coreMeter(p, i + half)).join(""));
+  put("hmeters", [
+    hidden.has("memory") ? "" : meter("Mem", s.ram.percent, 34, `${(s.ram.used / 1024 ** 3).toFixed(1)}G/${(s.ram.total / 1024 ** 3).toFixed(1)}G`),
+    hidden.has("memory") ? "" : meter("Swp", s.swap.percent, 34, `${(s.swap.used / 1024 ** 3).toFixed(1)}G/${(s.swap.total / 1024 ** 3).toFixed(1)}G`),
+    !g || hidden.has("gpu") ? "" : meter("GPU", g.util ?? 0, 34, `${(g.util ?? 0).toFixed(0)}% ${g.temp ?? "-"}°C`),
+    hidden.has("disks") ? "" : s.disks.slice(0, 2).map(d => meter(d.mount === "/" ? "/" : d.mount.split(/[\/]/).filter(Boolean).pop().slice(0, 4), d.percent, 34, `${(d.used / 1024 ** 3).toFixed(0)}G/${(d.total / 1024 ** 3).toFixed(0)}G`)).join(""),
+  ].join(""));
+  put("hinfo", `Tasks: <b>${s.procs_total}</b>   Uptime: <b>${uptime(s.uptime)}</b>` +
+    (hidden.has("network") ? "" : `<br>Net: <b>↓ ${rate(s.net.down)}</b>  <b>↑ ${rate(s.net.up)}</b>`) +
+    `<br>${esc(s.user)}@${esc(s.host)} · ${esc(s.os)}`);
+  put("hprocs", s.procs.slice(0, 12).map(p => `<tr><td>${esc(p.name.replace(/\.exe$/i, ""))}</td><td class="r">${p.count}</td>` +
+    `<td class="r c">${p.cpu.toFixed(1)}</td><td class="r m">${(p.mem / 1024 ** 2).toFixed(0)} MiB</td>` +
+    `<td>${bar(Math.min(100, p.cpu * 4), 16)}</td></tr>`).join(""));
   put("spark-min", spark(s.history.cpu).replace(/[▄▅▆▇█]/g, m => `<span class="hi">${m}</span>`));
 }
 
@@ -427,7 +585,10 @@ function demoStats(){
     net: {down: 2.4e6 + w(3e6, 0.9), up: 180e3 + w(2e5, 1.3)}, local_ip: "192.168.1.20 (Ethernet)",
     procs: [{name: "game.exe", cpu: 14.2, mem: 6.1e9, count: 1}, {name: "firefox.exe", cpu: 4.8, mem: 2.2e9, count: 14},
             {name: "obs64.exe", cpu: 3.1, mem: 640e6, count: 1}, {name: "discord.exe", cpu: 1.2, mem: 520e6, count: 6},
-            {name: "code.exe", cpu: 0.9, mem: 910e6, count: 9}, {name: "spotify.exe", cpu: 0.4, mem: 310e6, count: 5}],
+            {name: "code.exe", cpu: 0.9, mem: 910e6, count: 9}, {name: "spotify.exe", cpu: 0.4, mem: 310e6, count: 5},
+            {name: "explorer.exe", cpu: 0.3, mem: 180e6, count: 1}, {name: "steam.exe", cpu: 0.3, mem: 420e6, count: 4},
+            {name: "dwm.exe", cpu: 0.2, mem: 150e6, count: 1}, {name: "python.exe", cpu: 0.2, mem: 60e6, count: 2},
+            {name: "vivaldi.exe", cpu: 0.1, mem: 1.3e9, count: 21}, {name: "wallpaper64.exe", cpu: 0.1, mem: 240e6, count: 1}],
     procs_total: 287,
     history: {cpu: hist(0.5, 0, 15, 40), gpu: hist(0.3, 2, 20, 50), down: hist(0.8, 1, 1e6, 4e6), up: hist(1.1, 3, 1e5, 3e5)},
     ...(demoDistro() ? {os: `${({arch: "Arch Linux", "opensuse-tumbleweed": "openSUSE Tumbleweed", endeavouros: "EndeavourOS", cachyos: "CachyOS", ubuntu: "Ubuntu 24.04.3 LTS", debian: "Debian GNU/Linux 13", fedora: "Fedora Linux 43", linuxmint: "Linux Mint 22.2", manjaro: "Manjaro Linux", nixos: "NixOS 25.05", opensuse: "openSUSE Tumbleweed", gentoo: "Gentoo Linux"})[demoDistro()] || demoDistro()} x86_64`, os_family: "linux", distro: demoDistro(),
@@ -485,9 +646,16 @@ function blockGlyph(ch){
 function clockHTML(hhmm){ return [...hhmm].map(blockGlyph).join(""); }
 function tick(){ const n = new Date();
   showLayout();
-  const hhmm = n.toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit"});
-  const date = n.toLocaleDateString("en-GB", {weekday:"long", day:"numeric", month:"long"});
-  const sec = ":" + String(n.getSeconds()).padStart(2, "0");
+  const h12 = style.clock === "12h";
+  let h = n.getHours();
+  const ampm = h12 ? (h < 12 ? " am" : " pm") : "";
+  if (h12) h = h % 12 || 12;
+  const hhmm = String(h).padStart(2, "0") + ":" + String(n.getMinutes()).padStart(2, "0");
+  const date = {long: n.toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long"}),
+                short: n.toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"}),
+                iso: `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`,
+                none: ""}[style.date || "long"] ?? "";
+  const sec = (style.seconds === false ? "" : ":" + String(n.getSeconds()).padStart(2, "0")) + ampm;
   document.querySelectorAll("[data-clock]").forEach(c => {
     const html = clockHTML(hhmm), t = c.querySelector(".time");
     if (t.dataset.k !== hhmm) { t.innerHTML = html; t.dataset.k = hhmm; }

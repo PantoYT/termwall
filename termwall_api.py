@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
@@ -53,27 +53,118 @@ def valid_theme(t) -> bool:
                     and all(c in "0123456789abcdefABCDEF" for c in t[k][1:]) for k in THEME_KEYS))
 
 
-# The look, from termwall.json next to the API (or $TERMWALL_STYLE); a "style" object inside
-# theme.json wins over it, so a switcher (livery) can give every palette its own look.
+# The look, from termwall.json next to the server (or $TERMWALL_STYLE); a "style" object inside
+# theme.json wins over it, so a switcher (livery) can give every palette its own look. Every key
+# is optional; anything unknown or invalid is dropped, so an old or hand-edited file can't break
+# the page.
 STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "termwall.json")
-STYLE_CHOICES = {
-    "layout": ("fetch", "board", "minimal"),   # fastfetch screen / btop-like boxes / the clock and one line
-    "bars": ("blocks", "shade", "dots", "line"),
+LAYOUTS = ("fetch", "board", "minimal", "htop", "portrait")
+SECTIONS = ("prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
+            "procs", "swatches", "music", "status")
+FONTS = ("cascadia", "jetbrains", "fira", "iosevka", "consolas", "system")
+EFFECTS = ("crt", "glow")
+
+# Built-in palettes for when nothing writes theme.json: the six roles termwall uses, taken
+# from each project's published palette (dark variants).
+THEMES = {
+    "mint":         {"bg": "#171717", "accent": "#b5f4e7", "secondary": "#7faca3", "text": "#939fa1", "dim": "#4b5252", "faint": "#242626"},
+    "catppuccin":   {"bg": "#1e1e2e", "accent": "#cba6f7", "secondary": "#89b4fa", "text": "#cdd6f4", "dim": "#6c7086", "faint": "#313244"},
+    "gruvbox":      {"bg": "#282828", "accent": "#fabd2f", "secondary": "#8ec07c", "text": "#ebdbb2", "dim": "#928374", "faint": "#3c3836"},
+    "nord":         {"bg": "#2e3440", "accent": "#88c0d0", "secondary": "#81a1c1", "text": "#d8dee9", "dim": "#4c566a", "faint": "#3b4252"},
+    "dracula":      {"bg": "#282a36", "accent": "#bd93f9", "secondary": "#ff79c6", "text": "#f8f8f2", "dim": "#6272a4", "faint": "#44475a"},
+    "tokyo-night":  {"bg": "#1a1b26", "accent": "#7aa2f7", "secondary": "#bb9af7", "text": "#c0caf5", "dim": "#565f89", "faint": "#24283b"},
+    "rose-pine":    {"bg": "#191724", "accent": "#ebbcba", "secondary": "#c4a7e7", "text": "#e0def4", "dim": "#6e6a86", "faint": "#26233a"},
+    "everforest":   {"bg": "#2d353b", "accent": "#a7c080", "secondary": "#83c092", "text": "#d3c6aa", "dim": "#859289", "faint": "#343f44"},
+    "kanagawa":     {"bg": "#1f1f28", "accent": "#7e9cd8", "secondary": "#957fb8", "text": "#dcd7ba", "dim": "#727169", "faint": "#2a2a37"},
+    "solarized":    {"bg": "#002b36", "accent": "#268bd2", "secondary": "#2aa198", "text": "#93a1a1", "dim": "#586e75", "faint": "#073642"},
+    "one-dark":     {"bg": "#282c34", "accent": "#61afef", "secondary": "#c678dd", "text": "#abb2bf", "dim": "#5c6370", "faint": "#2c313a"},
+    "monokai":      {"bg": "#272822", "accent": "#a6e22e", "secondary": "#f92672", "text": "#f8f8f2", "dim": "#75715e", "faint": "#3e3d32"},
+    "amber":        {"bg": "#120d02", "accent": "#ffb000", "secondary": "#cc8c00", "text": "#e0a020", "dim": "#6b4a00", "faint": "#241a04"},
+    "phosphor":     {"bg": "#050f07", "accent": "#33ff66", "secondary": "#1fbf4a", "text": "#2fe05a", "dim": "#145c27", "faint": "#0a1f0e"},
 }
-STYLE_DEFAULTS = {"layout": "fetch", "bars": "blocks", "rotate": 0}
+
+
+def _choice(*allowed):
+    def ok(v):
+        return v if v in allowed else None
+    ok.help = " | ".join(allowed)
+    return ok
+
+
+def _int(lo, hi):
+    def ok(v):
+        return v if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi else None
+    ok.help = f"{lo}-{hi}"
+    return ok
+
+
+def _float(lo, hi):
+    def ok(v):
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi else None
+    ok.help = f"{lo}-{hi}"
+    return ok
+
+
+def _bool(v):
+    return v if isinstance(v, bool) else None
+_bool.help = "on | off"
+
+
+def _subset(*allowed):
+    def ok(v):
+        return [x for x in dict.fromkeys(v) if x in allowed] if isinstance(v, list) else None
+    ok.help = "a list from: " + ", ".join(allowed) + " (comma-separated; none = empty)"
+    return ok
+
+
+def _text(v):
+    """The prompt's command: printable text, up to 60 characters."""
+    return v if isinstance(v, str) and len(v) <= 60 and v.isprintable() else None
+_text.help = "any text up to 60 characters"
+
+
+def _logo(v):
+    import re
+    return v if isinstance(v, str) and re.fullmatch(r"auto|windows|tux|none|[a-z0-9-]{1,30}", v) else None
+_logo.help = "auto | windows | tux | none | a distro id (arch, ubuntu, nixos, ...)"
+
+
+def _palette(v):
+    return {k: v[k] for k in THEME_KEYS} if valid_theme(v) else None
+_palette.help = "six #rrggbb colors (bg, accent, secondary, text, dim, faint): edit termwall.json"
+
+STYLE_SPEC = {
+    "layout": _choice(*LAYOUTS),                        # fetch / board / minimal / htop / portrait
+    "bars": _choice("blocks", "shade", "dots", "line"),
+    "rotate": _int(0, 1440),                            # minutes between layouts, 0 = off
+    "theme": _choice("auto", *THEMES),                  # a built-in palette (auto = distro colors / mint)
+    "colors": _palette,                                 # your own palette (wins over "theme")
+    "clock": _choice("24h", "12h"),
+    "seconds": _bool,
+    "date": _choice("long", "short", "iso", "none"),
+    "hide": _subset(*SECTIONS),
+    "prompt": _text,                                    # the prompt's command, "fastfetch --live" by default
+    "private": _bool,                                   # hide user, computer name and local IP
+    "font": _choice(*FONTS),
+    "scale": _float(0.8, 1.1),
+    "effects": _subset(*EFFECTS),
+    "logo": _logo,
+}
+STYLE_DEFAULTS = {"layout": "fetch", "bars": "blocks", "rotate": 0, "theme": "auto", "clock": "24h",
+                  "seconds": True, "date": "long", "hide": [], "private": False, "font": "cascadia",
+                  "scale": 1.0, "effects": [], "logo": "auto"}
 
 
 def clean_style(raw) -> dict:
-    """Only known keys with allowed values; "rotate" = minutes between layouts (0 = off)."""
+    """Only known keys with valid values."""
     out: dict = {}
     if not isinstance(raw, dict):
         return out
-    for k, allowed in STYLE_CHOICES.items():
-        if raw.get(k) in allowed:
-            out[k] = raw[k]
-    r = raw.get("rotate")
-    if isinstance(r, int) and not isinstance(r, bool) and 0 <= r <= 1440:
-        out["rotate"] = r
+    for k, check in STYLE_SPEC.items():
+        if k in raw:
+            v = check(raw[k])
+            if v is not None:
+                out[k] = v
     return out
 
 
@@ -93,23 +184,66 @@ def read_style(style_path: str | None = None, theme_path: str | None = None) -> 
             **clean_style(themed.get("style") if isinstance(themed, dict) else None)}
 
 
-def set_style(key: str, value: str, path: str | None = None) -> dict:
-    path = path or STYLE_FILE
-    cur = clean_style(_json_file(path))
+def resolve_palette(style: dict, theme_path: str | None = None) -> dict | None:
+    """theme.json (livery or another switcher) > "colors" > a built-in "theme" > None (the page
+    then uses the distro's colors on Linux, its defaults on Windows)."""
+    t = read_theme(theme_path) if theme_path else read_theme()
+    if t:
+        return t
+    if style.get("colors"):
+        return style["colors"]
+    return THEMES.get(style.get("theme", "auto"))
+
+
+def parse_value(key: str, value: str):
+    """A command-line string -> the type the setting takes."""
+    check = STYLE_SPEC[key]
+    if check is _bool:
+        v = value.lower()
+        if v in ("on", "true", "yes", "1"):
+            return True
+        if v in ("off", "false", "no", "0"):
+            return False
+        return value
+    if getattr(check, "help", "").startswith("a list"):
+        return [] if value.lower() in ("none", "") else [x.strip() for x in value.split(",") if x.strip()]
     if key == "rotate":
-        if not value.isdigit() or int(value) > 1440:
-            raise ValueError("rotate is minutes, 0-1440 (0 = off)")
-        cur["rotate"] = int(value)
-    elif key in STYLE_CHOICES:
-        if value not in STYLE_CHOICES[key]:
-            raise ValueError(f"{key} is one of {', '.join(STYLE_CHOICES[key])}")
-        cur[key] = value
-    else:
-        raise ValueError(f"unknown setting {key!r} (layout, bars, rotate)")
+        return int(value) if value.isdigit() else value
+    if key == "scale":
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    return value
+
+
+def write_style(cur: dict, path: str) -> None:
     with open(path, "a+", encoding="utf-8") as f:  # in place: no temp+rename (EFS-broken AppData)
         f.seek(0)
         f.truncate()
         f.write(json.dumps(cur, indent=2) + "\n")
+
+
+def set_style(key: str, value: str, path: str | None = None) -> dict:
+    """One setting from the command line; "default" removes it, key "reset" clears them all.
+    Keys this version doesn't know (written by a newer termwall or by hand) are kept."""
+    path = path or STYLE_FILE
+    raw = _json_file(path)
+    cur = dict(raw) if isinstance(raw, dict) else {}
+    if key == "reset":
+        cur = {}
+    elif key not in STYLE_SPEC:
+        raise ValueError(f"unknown setting {key!r} ({', '.join(STYLE_SPEC)})")
+    elif value.lower() == "default":
+        cur.pop(key, None)
+    else:
+        if key == "colors":
+            raise ValueError("colors: put six #rrggbb colors into termwall.json by hand, or use --theme")
+        v = STYLE_SPEC[key](parse_value(key, value))
+        if v is None:
+            raise ValueError(f"{key}: {STYLE_SPEC[key].help}")
+        cur[key] = v
+    write_style(cur, path)
     return cur
 
 
@@ -494,7 +628,7 @@ class Sampler:
             except psutil.Error:
                 pass
 
-    def top_processes(self, n: int = 6) -> list:
+    def top_processes(self, n: int = 12) -> list:
         ncpu = self.static["cores"] or 1
         by_name: dict = {}
         for p in psutil.process_iter(["name", "memory_info"]):
@@ -612,10 +746,12 @@ def make_handler(sampler: Sampler, token: str):
                 self.end_headers()
                 return
             if path == "/stats":
-                body = json.dumps({**sampler.get(), "theme": read_theme(), "style": read_style(),
+                st = read_style()
+                body = json.dumps({**sampler.get(), "theme": resolve_palette(st), "style": st,
                                    "page": page_version()}).encode()
             elif path == "/theme":  # tiny, polled often so palette switches land fast
-                body = json.dumps({"theme": read_theme(), "style": read_style(), "page": page_version()}).encode()
+                st = read_style()
+                body = json.dumps({"theme": resolve_palette(st), "style": st, "page": page_version()}).encode()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -714,8 +850,42 @@ def selftest() -> int:
         with open(tp, "w", encoding="utf-8") as f:
             json.dump({**good, "style": {"layout": "minimal", "clock": "segments", "bars": "comic-sans"}}, f)
         st = read_style(sp, tp)
-        check(st["layout"] == "minimal" and st["bars"] == "blocks" and "clock" not in st,
+        check(st["layout"] == "minimal" and st["bars"] == "blocks" and st["clock"] == "24h",
               "theme.json style wins, unknown values dropped")
+        os.remove(tp)
+        set_style("hide", "gpu,procs,nonsense", sp)
+        set_style("private", "on", sp)
+        set_style("scale", "1.1", sp)
+        set_style("effects", "crt", sp)
+        set_style("prompt", "neofetch", sp)
+        set_style("theme", "nord", sp)
+        st = read_style(sp, tp)
+        check(st["hide"] == ["gpu", "procs"] and st["private"] is True and st["scale"] == 1.1
+              and st["effects"] == ["crt"] and st["prompt"] == "neofetch", "settings parsed from the command line")
+        check(resolve_palette(st, tp) == THEMES["nord"], "a built-in theme gives the palette")
+        with open(sp, encoding="utf-8") as f:
+            raw = json.load(f)
+        raw["colors"] = dict(good, accent="#ff0000")
+        raw["from_a_newer_termwall"] = 1
+        write_style(raw, sp)
+        check(resolve_palette(read_style(sp, tp), tp)["accent"] == "#ff0000", "own colors win over a theme")
+        with open(tp, "w", encoding="utf-8") as f:
+            json.dump(good, f)
+        check(resolve_palette(read_style(sp, tp), tp) == good, "theme.json (livery) wins over everything")
+        set_style("hide", "none", sp)
+        with open(sp, encoding="utf-8") as f:
+            raw = json.load(f)
+        check(raw["hide"] == [] and raw.get("from_a_newer_termwall") == 1, "unknown keys survive a --style write")
+        for bad_key, bad in (("scale", "9"), ("layout", "nope"), ("private", "maybe"), ("prompt", "x" * 61)):
+            try:
+                set_style(bad_key, bad, sp)
+                check(False, f"bad {bad_key} refused")
+            except ValueError:
+                check(True, f"bad {bad_key} refused")
+        set_style("theme", "default", sp)
+        check("theme" not in json.load(open(sp, encoding="utf-8")), "default removes a setting")
+        set_style("reset", "", sp)
+        check(json.load(open(sp, encoding="utf-8")) == {}, "reset clears them all")
         try:
             set_style("layout", "nope", sp)
             check(False, "bad layout refused")
@@ -767,14 +937,39 @@ if __name__ == "__main__":
     if "--stop" in sys.argv:
         print(f"stopped {stop_running()}")
         sys.exit(0)
+    if "--themes" in sys.argv:
+        for name, t in THEMES.items():
+            print(f"  {name:12} {t['bg']} {t['accent']} {t['secondary']}")
+        print("  termwall --theme NAME   (auto = the distro's colors on Linux, mint on Windows)")
+        sys.exit(0)
+    if "--theme" in sys.argv:
+        rest = sys.argv[sys.argv.index("--theme") + 1:]
+        try:
+            set_style("theme", rest[0] if rest else "")
+        except (ValueError, IndexError) as e:
+            sys.exit(f"error: {e}")
+        print(f"theme: {rest[0]}" + ("  (theme.json exists: its palette wins)" if read_theme() else ""))
+        sys.exit(0)
     if "--style" in sys.argv:
         rest = sys.argv[sys.argv.index("--style") + 1:]
         try:
-            st = set_style(rest[0], rest[1]) if len(rest) >= 2 else None
+            if rest and rest[0] == "reset":
+                set_style("reset", "")
+            elif len(rest) >= 2:
+                set_style(rest[0], " ".join(rest[1:]))
+            elif rest:
+                raise ValueError(f"{rest[0]}: give a value ({STYLE_SPEC[rest[0]].help})" if rest[0] in STYLE_SPEC
+                                 else f"unknown setting {rest[0]!r}")
         except ValueError as e:
             sys.exit(f"error: {e}")
-        for k, v in read_style().items():
-            print(f"  {k:7} {v}" + (f"   ({' | '.join(STYLE_CHOICES[k])})" if k in STYLE_CHOICES else "   (minutes, 0 = off)"))
+        st = read_style()
+        for k, check in STYLE_SPEC.items():
+            v = st.get(k, "-")
+            v = ",".join(v) if isinstance(v, list) else ("on" if v is True else "off" if v is False else v)
+            if k == "colors":
+                v = "set" if st.get("colors") else "-"
+            print(f"  {k:8} {str(v) or '-':22} {check.help}")
+        print("  termwall --style KEY VALUE | KEY default | reset")
         sys.exit(0)
     if "--once" in sys.argv:
         s = Sampler()
