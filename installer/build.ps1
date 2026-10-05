@@ -39,7 +39,7 @@ python -m pip install psutil --target (Join-Path $py 'Lib\site-packages') --only
 if ($LASTEXITCODE -ne 0) { throw 'pip could not fetch psutil' }
 
 # 3. termwall itself
-foreach ($f in 'index.html', 'termwall_api.py', 'project.json', 'README.md', 'LICENSE', 'termwall-api.vbs') {
+foreach ($f in 'index.html', 'logos.js', 'termwall_api.py', 'project.json', 'README.md', 'LICENSE', 'termwall-api.vbs') {
     Copy-Item (Join-Path $root $f) $stage
 }
 

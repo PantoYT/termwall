@@ -21,6 +21,7 @@ body.L-fetch #fetch, body.L-board #board, body.L-minimal #minimal{display:block}
 .cursor{display:inline-block;width:.6em;height:1.1em;background:var(--mint);vertical-align:-.18em;animation:blink 1.1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
 pre.logo{font:inherit;font-size:17px;line-height:1.22;white-space:pre}
+pre.logo .g{color:var(--grey)}
 .title{font-size:22px;font-weight:700}
 .title .at{color:var(--grey);font-weight:400}
 .sep{color:var(--dim);margin:2px 0 10px}
@@ -189,6 +190,7 @@ body.L-minimal #minimal{display:flex;flex-direction:column;align-items:center;ju
 </div>
 
 <script src="token.js"></script>
+<script src="logos.js"></script>
 <script>
 // token.js is written by termwall_api.py at start; without the token the API answers 403.
 const TOKEN = encodeURIComponent(window.TERMWALL_TOKEN || "");
@@ -258,6 +260,30 @@ const TUX = [
 const gib = b => (b/1024**3).toFixed(b >= 100*1024**3 ? 0 : 2) + " GiB";
 const rate = b => b >= 1024**2 ? (b/1024**2).toFixed(1)+" MiB/s" : (b/1024).toFixed(0)+" KiB/s";
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// Distro logos: fastfetch's, from logos.js (tools/fetch_logos.py). Chosen by os-release ID,
+// then ID_LIKE (an Arch derivative without its own logo gets Arch's), else the Tux.
+const DISTRO_LOGOS = window.DISTRO_LOGOS || {};
+const DISTRO_COLORS = window.DISTRO_COLORS || {};
+function distroId(s){
+  const ids = [s.distro || "", ...String(s.distro_like || "").split(/[ ]+/)];
+  return ids.find(i => DISTRO_LOGOS[i]) || null;
+}
+function linuxLogo(s){
+  const id = distroId(s);
+  if (!id) return TUX;
+  return DISTRO_LOGOS[id].map(runs => runs.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join("")).join("\n");
+}
+// a full six-role palette around the distro's two colors, on termwall's dark background
+function distroTheme(s){
+  const id = distroId(s);
+  if (!id || !DISTRO_COLORS[id]) return null;
+  const [accent, secondary] = DISTRO_COLORS[id];
+  const mix = (a, b, t) => "#" + [1, 3, 5].map(i => Math.round(parseInt(a.substr(i, 2), 16) * (1 - t) +
+    parseInt(b.substr(i, 2), 16) * t).toString(16).padStart(2, "0")).join("");
+  return {bg: mix("#141414", accent, 0.04), accent, secondary, text: mix("#9a9a9a", accent, 0.12),
+          dim: mix("#4a4a4a", accent, 0.15), faint: mix("#222222", accent, 0.08)};
+}
 const BARS = {blocks: ["█", "█"], shade: ["▓", "░"], dots: ["■", "·"], line: ["━", "─"]};
 function bar(p, n = 20){ const f = Math.round(Math.max(0, Math.min(100, p))/100*n);
   const [on, off] = BARS[style.bars] || BARS.blocks;
@@ -280,7 +306,12 @@ function render(s){
   put("prompt", linux
     ? `<span class="k">${esc(s.user)}@${esc(s.host)}</span>:<span class="path">~</span><span class="arrow">$</span> fastfetch --live <span class="cursor"></span>`
     : `<span class="t">PS</span> <span class="path">C:\\Users\\${esc(s.user)}</span><span class="arrow">&gt;</span> fastfetch --live <span class="cursor"></span>`);
-  put("logo", linux ? TUX : WIN_LOGO);
+  put("logo", linux ? linuxLogo(s) : WIN_LOGO);
+  // a tall distro logo (fastfetch's run to 20 rows) shrinks to the Windows logo's height
+  document.querySelectorAll('[data-p="logo"]').forEach(el => {
+    const rows = el.textContent.split("\n").length;
+    el.style.fontSize = rows > 17 ? `${Math.max(12, Math.floor(17 * 17 / rows))}px` : "";
+  });
   put("sep", "-".repeat((s.user + "@" + s.host).length));
   put("swatches", ["var(--bg);outline:1px solid var(--dim)", "var(--grey)", "var(--teal)", "var(--mint)", "var(--dim)", "var(--faint)"]
     .map(c => `<span style="background:${c}"></span>`).join(""));
@@ -342,7 +373,9 @@ function render(s){
 // Palette from the API (theme.json, written by livery). Only swaps CSS variables — instant, no reload.
 const THEME_VARS = {bg: "--bg", accent: "--mint", secondary: "--teal", text: "--grey", dim: "--dim", faint: "--faint"};
 let themeKey = "";
+let ownTheme = null;  // the distro's colors, for when nothing writes theme.json
 function applyTheme(t){
+  t = t || ownTheme;
   const key = t ? JSON.stringify(t) : "";
   if (key === themeKey) return;
   themeKey = key;
@@ -360,7 +393,7 @@ async function poll(){
     const s = await r.json();
     if (s && s.time) {
       if (checkPage(s)) return;
-      applyTheme(s.theme); applyStyle(s.style); render(s); failures = 0;
+      ownTheme = distroTheme(s); applyTheme(s.theme); applyStyle(s.style); render(s); failures = 0;
       put("status", `<span class="ok">●</span> termwall-api · 127.0.0.1:9002 · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`); }
   } catch (e) {
     failures++;
@@ -390,13 +423,16 @@ function demoStats(){
             {name: "code.exe", cpu: 0.9, mem: 910e6, count: 9}, {name: "spotify.exe", cpu: 0.4, mem: 310e6, count: 5}],
     procs_total: 287,
     history: {cpu: hist(0.5, 0, 15, 40), gpu: hist(0.3, 2, 20, 50), down: hist(0.8, 1, 1e6, 4e6), up: hist(1.1, 3, 1e5, 3e5)},
+    ...(URLQ.get("distro") ? {os: `${({arch: "Arch Linux", "opensuse-tumbleweed": "openSUSE Tumbleweed", endeavouros: "EndeavourOS", cachyos: "CachyOS", ubuntu: "Ubuntu 24.04.3 LTS", debian: "Debian GNU/Linux 13", fedora: "Fedora Linux 43", linuxmint: "Linux Mint 22.2", manjaro: "Manjaro Linux", nixos: "NixOS 25.05", opensuse: "openSUSE Tumbleweed", gentoo: "Gentoo Linux"})[URLQ.get("distro")] || URLQ.get("distro")} x86_64`, os_family: "linux", distro: URLQ.get("distro"),
+        distro_like: "", kernel: "Linux 6.16.8-arch1-1", shell: "zsh"} : {}),
   };
 }
 if (DEMO) {
   // ?bg=171717&accent=b5f4e7&... : a palette for the demo (all six, hex without #)
   const keys = ["bg", "accent", "secondary", "text", "dim", "faint"];
   if (keys.every(k => /^[0-9a-f]{6}$/i.test(URLQ.get(k) || ""))) applyTheme(Object.fromEntries(keys.map(k => [k, "#" + URLQ.get(k)])));
-  const demo = () => { const s = demoStats(); applyStyle(style); render(s);
+  const demo = () => { const s = demoStats(); ownTheme = distroTheme(s); if (!themeKey) applyTheme(null);
+    applyStyle(style); render(s);
     put("status", `<span class="ok">●</span> demo · made-up stats`); };
   setInterval(demo, 1000); setTimeout(demo, 0);  // after the whole script ran (clock glyphs below)
 } else {

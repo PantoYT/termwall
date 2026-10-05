@@ -110,6 +110,13 @@ The clock's digits are one SVG per glyph, so there are no seams between their pi
 
 ## Other systems
 
+**Distro logos and colors.** On Linux the logo is your distro's, from
+[fastfetch](https://github.com/fastfetch-cli/fastfetch) (MIT; its license is at the top of
+`logos.js`, built by `tools/fetch_logos.py`): about 25 distros by os-release `ID`, their
+derivatives through `ID_LIKE`, a Tux for the rest. Without a palette from outside
+(`theme.json`), termwall wears the distro's own colors. Preview: `index.html?demo&distro=arch`.
+
+
 - **Linux**: the API reads the distro from `/etc/os-release`, the CPU from
   `/proc/cpuinfo`, the board from DMI, and skips pseudo filesystems (snaps, Docker
   overlays). Tested on Ubuntu 24.04 (selftest and a live snapshot). The page shows a Tux
