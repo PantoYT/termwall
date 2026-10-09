@@ -1271,8 +1271,9 @@ if __name__ == "__main__":
         for line in problems:
             print(f"  {line}")
         print(f"{STYLE_FILE}: " + ("fine" if not problems else f"{len(problems)} problem(s)"))
-        if read_theme():
-            print("note: theme.json exists (livery or another switcher): its colors win over this file")
+        own = read_style()
+        if read_theme() and own.get("theme", "auto") == "auto" and not own.get("colors"):
+            print("note: theme \"auto\": the colors come from theme.json (livery); pick a theme here to override")
         over = theme_overrides()
         if over:
             print("note: theme.json also sets " + ", ".join(f"{k} = {_toml_value(v)}" for k, v in over.items())
