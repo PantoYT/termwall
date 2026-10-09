@@ -41,7 +41,7 @@ and run it. No admin rights, nothing else to install.
 A winget package is in review; once it's accepted: `winget install PantoYT.termwall`.
 
 The installer also puts a `termwall` command on your PATH (in new terminals):
-`termwall --style layout board`, `termwall --version`.
+`termwall --config` (opens the settings file), `termwall --style layout board`, `termwall --version`.
 
 ## Configuration
 
@@ -49,21 +49,27 @@ termwall reads two optional files from its folder (`%LOCALAPPDATA%\Programs\term
 the installer, the repo folder otherwise). Both are picked up within a second, without
 reloading the wallpaper.
 
-**The look**: `termwall.json`, written by `termwall --style KEY VALUE` (`termwall --style`
-alone lists everything with its current value; `KEY default` removes one, `reset` all):
+**The look**: `termwall.toml`. `termwall --config` opens it: every setting is in it with its
+current value, and the comment above each one says what it does and what it accepts. Change a
+value, save, and the wallpaper follows. `termwall --check` names a line termwall can't use (an
+invalid value falls back to its default; a file that isn't valid TOML keeps the last good
+settings until it's fixed). From the command line instead: `termwall --style KEY VALUE`
+(`termwall --style` alone lists everything, `KEY default` puts one back, `reset` all of them).
+A `termwall.json` from termwall 1.1 is carried over on the first start and renamed to
+`termwall.json.old`.
 
 | setting | values | default |
 |---|---|---|
 | `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side) | `fetch` |
 | `theme` | `auto`, `mint`, `catppuccin`, `gruvbox`, `nord`, `dracula`, `tokyo-night`, `rose-pine`, `everforest`, `kanagawa`, `solarized`, `one-dark`, `monokai`, `amber`, `phosphor` (`termwall --themes`, or `termwall --theme nord`) | `auto`: your distro's colors on Linux, mint on Windows |
-| `colors` | your own six colors, edited into `termwall.json` by hand: `"colors": {"bg": "#…", "accent": …}` | |
+| `colors` | your own six colors: uncomment the `colors = { bg = "#…", … }` line in `termwall.toml` | |
 | `bars` | `blocks`, `shade`, `dots`, `line` | `blocks` |
 | `hide` | any of `prompt`, `logo`, `info`, `clock`, `cpu`, `cores`, `gpu`, `memory`, `disks`, `network`, `procs`, `swatches`, `music`, `status` (`termwall --style hide gpu,procs`; `none` shows all) | nothing |
 | `clock` | `24h`, `12h` | `24h` |
-| `seconds` | `on`, `off` | `on` |
+| `seconds` | `true`, `false` (`on`/`off` with `--style`) | `true` |
 | `date` | `long` (monday 5 october), `short`, `iso`, `none` | `long` |
 | `prompt` | the command in the prompt line, any text up to 60 characters | `fastfetch --live` |
-| `private` | `on` hides your user name, computer name and local IP (for streams and screenshots) | `off` |
+| `private` | `true` hides your user name, computer name and local IP (for streams and screenshots) | `false` |
 | `logo` | `auto`, `windows`, `tux`, `none`, or any distro's (`arch` on Windows works) | `auto` |
 | `font` | `cascadia`, `jetbrains`, `fira`, `iosevka`, `consolas`, `system` (the font must be installed; otherwise the next one in line is used) | `cascadia` |
 | `scale` | `0.8` to `1.1`: smaller fits more, larger makes everything bigger | `1.0` |
@@ -91,10 +97,10 @@ can have its own look.
 | URL `?layout=…&hide=…&effects=…` and the other settings | the look | always (handy in a browser) |
 | URL `?demo&bg=…&accent=…` (all six) | palette | demo mode only |
 | `"style"` in `theme.json` | the look | always |
-| `termwall.json` | the look | always |
+| `termwall.toml` | the look | always |
 | `theme.json` palette | colors | always |
-| `colors` in `termwall.json` | colors | without `theme.json` |
-| `theme` in `termwall.json` | colors | without `theme.json` and `colors` |
+| `colors` in `termwall.toml` | colors | without `theme.json` |
+| `theme` in `termwall.toml` | colors | without `theme.json` and `colors` |
 | your distro's colors | colors | Linux, `theme` auto |
 | built-in defaults | everything | otherwise |
 
@@ -109,7 +115,7 @@ files. The port, `127.0.0.1:9002`, is fixed.
 | the server won't start: "port 9002 is taken" | another termwall is already running (a manual one next to the installed one?) |
 | GPU shows `n/a` | only NVIDIA cards are read (through `nvidia-smi`); AMD and Intel GPUs show `n/a` |
 | Wallpaper Engine shows an old version after an update | WE plays its own copy of termwall: use the installer, or a junction ([Manual setup](#manual-setup)) |
-| colors or layout don't change | check the JSON in `theme.json` / `termwall.json` is valid: an invalid file is ignored |
+| colors or layout don't change | `termwall --check` names a line in `termwall.toml` it can't use. Is there a `theme.json`? Its colors and `"style"` win |
 
 ## How it works
 

@@ -6,6 +6,7 @@ once per second, so a request never blocks on psutil or nvidia-smi.
     python termwall_api.py              # serve on 127.0.0.1:9002
     python termwall_api.py --once       # print one snapshot and exit
     python termwall_api.py --selftest
+    python termwall_api.py --config                 # open termwall.toml (every setting, commented)
     python termwall_api.py --style                  # the look: layout, bars, rotation
     python termwall_api.py --style layout board     # change one of them (the page follows live)
     python termwall_api.py --link-we                # show up in Wallpaper Engine (a junction in myprojects)
@@ -53,11 +54,12 @@ def valid_theme(t) -> bool:
                     and all(c in "0123456789abcdefABCDEF" for c in t[k][1:]) for k in THEME_KEYS))
 
 
-# The look, from termwall.json next to the server (or $TERMWALL_STYLE); a "style" object inside
+# The look, from termwall.toml next to the server (or $TERMWALL_STYLE): a commented file that
+# lists every setting and its choices, meant to be edited by hand. A "style" object inside
 # theme.json wins over it, so a switcher (livery) can give every palette its own look. Every key
 # is optional; anything unknown or invalid is dropped, so an old or hand-edited file can't break
-# the page.
-STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "termwall.json")
+# the page. termwall.json (before 1.2) is carried over once.
+STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "termwall.toml")
 LAYOUTS = ("fetch", "board", "minimal", "htop", "portrait")
 SECTIONS = ("prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
             "procs", "swatches", "music", "status")
@@ -131,7 +133,7 @@ _logo.help = "auto | windows | tux | none | a distro id (arch, ubuntu, nixos, ..
 
 def _palette(v):
     return {k: v[k] for k in THEME_KEYS} if valid_theme(v) else None
-_palette.help = "six #rrggbb colors (bg, accent, secondary, text, dim, faint): edit termwall.json"
+_palette.help = "six #rrggbb colors (bg, accent, secondary, text, dim, faint): edit termwall.toml"
 
 STYLE_SPEC = {
     "layout": _choice(*LAYOUTS),                        # fetch / board / minimal / htop / portrait
@@ -180,7 +182,10 @@ def read_style(style_path: str | None = None, theme_path: str | None = None) -> 
     style_path = style_path or STYLE_FILE
     theme_path = theme_path or THEME_FILE
     themed = _json_file(theme_path)
-    return {**STYLE_DEFAULTS, **clean_style(_json_file(style_path)),
+    own = load_config(style_path)[0]
+    if own is None and style_path.endswith(".toml") and not os.path.exists(style_path):
+        own = _json_file(os.path.join(os.path.dirname(style_path), "termwall.json"))  # not carried over yet
+    return {**STYLE_DEFAULTS, **clean_style(own),
             **clean_style(themed.get("style") if isinstance(themed, dict) else None)}
 
 
@@ -217,18 +222,168 @@ def parse_value(key: str, value: str):
     return value
 
 
+# What each setting does, for the comments in termwall.toml (the choices come from STYLE_SPEC).
+STYLE_DOCS = {
+    "layout": "How the screen is laid out.\n"
+              "fetch = the fastfetch screen, board = boxes like btop, htop = meters and a big process\n"
+              "table, minimal = the clock and one line, portrait = for a monitor turned on its side",
+    "bars": "How meters are drawn: blocks ████, shade ▓▓░░, dots ■■··, line ━━──",
+    "rotate": "Minutes between layouts (fetch, board, minimal, htop, portrait, again); 0 = off",
+    "theme": "A built-in palette. auto = the distro's own colors on Linux, mint on Windows.\n"
+             "termwall --themes shows them; \"colors\" below wins over this",
+    "colors": "Your own palette: six #rrggbb colors. Wins over \"theme\".",
+    "clock": "24h or 12h (am/pm)",
+    "seconds": "Seconds under the clock",
+    "date": "long = monday 5 october, short = mon 5 oct, iso = 2026-10-05, none = no date",
+    "hide": "Sections to hide, e.g. [\"gpu\", \"procs\"]; [] shows everything",
+    "prompt": "The command shown in the prompt line, up to 60 characters",
+    "private": "true hides your user name, computer name and local IP (for screenshots and streams)",
+    "scale": "Text size, 0.8 (smaller, fits more) to 1.1 (bigger)",
+    "effects": "crt = scanlines and a dark vignette, like an old monitor; glow = soft light around text.\n"
+               "[] = none, [\"crt\", \"glow\"] = both",
+    "logo": "The logo. auto = your OS; or any distro's logo whatever the OS",
+}
+STYLE_DOCS["font"] = "The font. consolas and system are always there; the others need the font installed"
+CONFIG_DEFAULTS = {**STYLE_DEFAULTS, "prompt": "fastfetch --live"}
+
+
+def _toml_value(v) -> str:
+    """A TOML value for the types settings take. JSON strings are valid TOML basic strings."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, str):
+        return json.dumps(v, ensure_ascii=False)
+    if isinstance(v, list):
+        return "[" + ", ".join(_toml_value(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{k} = {_toml_value(x)}" for k, x in v.items()) + " }"
+    raise TypeError(type(v))
+
+
+def render_config(cur: dict) -> str:
+    """termwall.toml with every setting, its current value, what it does and what it accepts.
+    Keys this version doesn't know (from a newer termwall) are kept at the end."""
+    out = ["# termwall settings. Edit a value and save: the wallpaper follows within a second.",
+           "# A value termwall doesn't accept is ignored (the default is used); termwall --check",
+           "# tells you which line is wrong. Delete this file to get every default back.",
+           "#",
+           "# If a switcher like livery writes theme.json, its colors (and its \"style\") win over",
+           "# what is set here. This file is rewritten by termwall --style, so keep notes elsewhere.",
+           ""]
+    for k, check in STYLE_SPEC.items():
+        for line in STYLE_DOCS[k].split("\n"):
+            out.append(f"# {line}")
+        if k == "colors":
+            if isinstance(cur.get("colors"), dict):
+                out.append(f"colors = {_toml_value(cur['colors'])}")
+            else:
+                example = {key: THEMES["mint"][key] for key in THEME_KEYS}
+                out.append(f"# colors = {_toml_value(example)}")
+        else:
+            if k in ("hide", "effects"):
+                out.append(f"# choices: {', '.join(SECTIONS if k == 'hide' else EFFECTS)}")
+            elif k == "theme":
+                out.append("# choices: auto, " + ", ".join(list(THEMES)[:7]) + ",")
+                out.append("#          " + ", ".join(list(THEMES)[7:]) + "   default: \"auto\"")
+            elif k != "prompt":
+                choices = "true | false" if check is _bool else check.help
+                out.append(f"# choices: {choices}   default: {_toml_value(CONFIG_DEFAULTS[k])}")
+            out.append(f"{k} = {_toml_value(cur.get(k, CONFIG_DEFAULTS[k]))}")
+        out.append("")
+    extra = {k: v for k, v in cur.items() if k not in STYLE_SPEC}
+    if extra:
+        out.append("# from a newer termwall (kept as they were)")
+        for k, v in extra.items():
+            try:
+                out.append(f"{k} = {_toml_value(v)}")
+            except TypeError:
+                pass
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
 def write_style(cur: dict, path: str) -> None:
+    text = render_config(cur) if path.endswith(".toml") else json.dumps(cur, indent=2) + "\n"
     with open(path, "a+", encoding="utf-8") as f:  # in place: no temp+rename (EFS-broken AppData)
         f.seek(0)
         f.truncate()
-        f.write(json.dumps(cur, indent=2) + "\n")
+        f.write(text)
+
+
+_cfg_cache: dict = {}  # path -> (mtime, parsed dict, error or None)
+
+
+def load_config(path: str) -> tuple[dict | None, str | None]:
+    """The settings file as a dict, and the parse error if any. A TOML file is re-read only
+    when it changes, and a broken edit keeps the last good settings (the wallpaper doesn't
+    jump to defaults while you're typing)."""
+    if not path.endswith(".toml"):
+        raw = _json_file(path)
+        return (raw if isinstance(raw, dict) else None), None
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        return None, None
+    hit = _cfg_cache.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1], hit[2]
+    try:
+        import tomllib
+    except ImportError:  # Python < 3.11
+        return None, "termwall.toml needs Python 3.11 or newer"
+    last_good = hit[1] if hit else None
+    try:
+        with open(path, "rb") as f:
+            data, err = tomllib.load(f), None
+    except (OSError, ValueError) as e:  # tomllib.TOMLDecodeError is a ValueError
+        data, err = last_good, f"{os.path.basename(path)}: {e}"
+    _cfg_cache[path] = (mtime, data, err)
+    return data, err
+
+
+def ensure_config(path: str | None = None) -> str:
+    """termwall.toml exists after this. An older termwall.json next to it is carried over
+    once and renamed to termwall.json.old."""
+    path = path or STYLE_FILE
+    if not path.endswith(".toml") or os.path.exists(path):
+        return path
+    legacy = os.path.join(os.path.dirname(path), "termwall.json")
+    raw = _json_file(legacy)
+    write_style(raw if isinstance(raw, dict) else {}, path)
+    if os.path.exists(legacy):
+        try:
+            os.replace(legacy, legacy + ".old")
+        except OSError:
+            pass
+    return path
+
+
+def check_config(path: str | None = None) -> list[str]:
+    """Problems in the settings file, one line each (empty = fine)."""
+    path = path or STYLE_FILE
+    raw, err = load_config(path)
+    if err:
+        return [err]
+    problems = []
+    for k, v in (raw or {}).items():
+        if k not in STYLE_SPEC:
+            problems.append(f"{k}: unknown setting (ignored)")
+        elif STYLE_SPEC[k](v) is None:
+            problems.append(f"{k} = {_toml_value(v) if not isinstance(v, (dict,)) else 'table'}: "
+                            f"not accepted, the default is used ({STYLE_SPEC[k].help})")
+        elif isinstance(v, list) and len(STYLE_SPEC[k](v)) != len(v):
+            problems.append(f"{k}: some entries ignored ({STYLE_SPEC[k].help})")
+    return problems
 
 
 def set_style(key: str, value: str, path: str | None = None) -> dict:
     """One setting from the command line; "default" removes it, key "reset" clears them all.
     Keys this version doesn't know (written by a newer termwall or by hand) are kept."""
-    path = path or STYLE_FILE
-    raw = _json_file(path)
+    path = ensure_config(path or STYLE_FILE)
+    raw, err = load_config(path)
+    if err:
+        raise ValueError(f"{err}\nfix that line by hand (or delete the file to start from the defaults)")
     cur = dict(raw) if isinstance(raw, dict) else {}
     if key == "reset":
         cur = {}
@@ -238,7 +393,7 @@ def set_style(key: str, value: str, path: str | None = None) -> dict:
         cur.pop(key, None)
     else:
         if key == "colors":
-            raise ValueError("colors: put six #rrggbb colors into termwall.json by hand, or use --theme")
+            raise ValueError("colors: put six #rrggbb colors into termwall.toml by hand, or use --theme")
         v = STYLE_SPEC[key](parse_value(key, value))
         if v is None:
             raise ValueError(f"{key}: {STYLE_SPEC[key].help}")
@@ -789,6 +944,10 @@ def serve() -> None:
     except OSError:
         sys.exit(f"termwall's server is already running on {HOST}:{PORT} (check: http://{HOST}:{PORT}/health)")
     httpd.RequestHandlerClass = make_handler(sampler, write_token())
+    try:
+        ensure_config()
+    except OSError as e:
+        print(f"note: could not write {STYLE_FILE}: {e}")
     sampler.sample()
     threading.Thread(target=sampler.run, daemon=True).start()
     print(f"termwall's server on http://{HOST}:{PORT} - Ctrl+C stops it")
@@ -865,11 +1024,17 @@ def selftest() -> int:
         os.utime(p, ns=(1, 1))  # force a new mtime even on coarse-timestamp filesystems
         check(read_theme(p) is None, "broken JSON -> None")
     with tempfile.TemporaryDirectory() as td:
-        sp, tp = os.path.join(td, "termwall.json"), os.path.join(td, "theme.json")
+        sp, tp = os.path.join(td, "termwall.toml"), os.path.join(td, "theme.json")
         check(read_style(sp, tp) == STYLE_DEFAULTS, "no files -> default look")
         set_style("layout", "board", sp)
         set_style("rotate", "15", sp)
-        check(read_style(sp, tp)["layout"] == "board" and read_style(sp, tp)["rotate"] == 15, "termwall.json read")
+        check(read_style(sp, tp)["layout"] == "board" and read_style(sp, tp)["rotate"] == 15, "termwall.toml read")
+        text = open(sp, encoding="utf-8").read()
+        check(all(f"\n{k} = " in text for k in STYLE_SPEC if k != "colors") and "# colors = {" in text,
+              "termwall.toml lists every setting")
+        check("# choices: fetch | board | minimal | htop | portrait" in text, "its choices are in the comments")
+        import tomllib
+        check(clean_style(tomllib.loads(text)) == {**read_style(sp, tp)}, "the written file parses back the same")
         with open(tp, "w", encoding="utf-8") as f:
             json.dump({**good, "style": {"layout": "minimal", "clock": "segments", "bars": "comic-sans"}}, f)
         st = read_style(sp, tp)
@@ -880,25 +1045,47 @@ def selftest() -> int:
         set_style("private", "on", sp)
         set_style("scale", "1.1", sp)
         set_style("effects", "crt", sp)
-        set_style("prompt", "neofetch", sp)
+        set_style("prompt", 'say "hi" \\ bye', sp)
         set_style("theme", "nord", sp)
         st = read_style(sp, tp)
         check(st["hide"] == ["gpu", "procs"] and st["private"] is True and st["scale"] == 1.1
-              and st["effects"] == ["crt"] and st["prompt"] == "neofetch", "settings parsed from the command line")
+              and st["effects"] == ["crt"] and st["prompt"] == 'say "hi" \\ bye', "settings parsed from the command line")
         check(resolve_palette(st, tp) == THEMES["nord"], "a built-in theme gives the palette")
-        with open(sp, encoding="utf-8") as f:
-            raw = json.load(f)
-        raw["colors"] = dict(good, accent="#ff0000")
-        raw["from_a_newer_termwall"] = 1
-        write_style(raw, sp)
-        check(resolve_palette(read_style(sp, tp), tp)["accent"] == "#ff0000", "own colors win over a theme")
+
+        def edit(old, new):  # by hand, like a person in Notepad
+            t = open(sp, encoding="utf-8").read()
+            assert old in t, old
+            with open(sp, "w", encoding="utf-8") as f:
+                f.write(t.replace(old, new, 1))
+            os.utime(sp, ns=(time.time_ns(), time.time_ns() + 1))
+        edit("# colors = {", "colors = {")
+        edit('accent = "#b5f4e7"', 'accent = "#ff0000"')
+        check(resolve_palette(read_style(sp, tp), tp)["accent"] == "#ff0000", "own colors (edited in) win over a theme")
+        edit('layout = "board"', 'layout = "htop"\nfrom_a_newer_termwall = 1')
+        check(read_style(sp, tp)["layout"] == "htop", "a hand edit is picked up")
+        check(check_config(sp) == ["from_a_newer_termwall: unknown setting (ignored)"], "--check names an unknown key")
         with open(tp, "w", encoding="utf-8") as f:
             json.dump(good, f)
         check(resolve_palette(read_style(sp, tp), tp) == good, "theme.json (livery) wins over everything")
+        os.remove(tp)
         set_style("hide", "none", sp)
-        with open(sp, encoding="utf-8") as f:
-            raw = json.load(f)
-        check(raw["hide"] == [] and raw.get("from_a_newer_termwall") == 1, "unknown keys survive a --style write")
+        raw = tomllib.loads(open(sp, encoding="utf-8").read())
+        check(raw["hide"] == [] and raw.get("from_a_newer_termwall") == 1 and raw["colors"]["accent"] == "#ff0000",
+              "unknown keys and own colors survive a --style write")
+        edit('scale = 1.1', 'scale = 7')
+        check(read_style(sp, tp)["scale"] == 1.0 and any(x.startswith("scale = 7") for x in check_config(sp)),
+              "an invalid value falls back to the default and --check names it")
+        edit('scale = 7', 'scale = 1.1')
+        read_style(sp, tp)
+        edit('font = "cascadia"', 'font = "jetbrains')  # a missing quote: not TOML any more
+        check(read_style(sp, tp)["scale"] == 1.1, "a broken file keeps the last good settings")
+        check(len(check_config(sp)) == 1 and "termwall.toml" in check_config(sp)[0], "--check shows the parse error")
+        try:
+            set_style("layout", "board", sp)
+            check(False, "--style refuses to overwrite a broken file")
+        except ValueError:
+            check(True, "--style refuses to overwrite a broken file")
+        edit('font = "jetbrains', 'font = "jetbrains"')
         for bad_key, bad in (("scale", "9"), ("layout", "nope"), ("private", "maybe"), ("prompt", "x" * 61)):
             try:
                 set_style(bad_key, bad, sp)
@@ -906,14 +1093,17 @@ def selftest() -> int:
             except ValueError:
                 check(True, f"bad {bad_key} refused")
         set_style("theme", "default", sp)
-        check("theme" not in json.load(open(sp, encoding="utf-8")), "default removes a setting")
+        check(read_style(sp, tp)["theme"] == "auto", "default puts a setting back")
         set_style("reset", "", sp)
-        check(json.load(open(sp, encoding="utf-8")) == {}, "reset clears them all")
-        try:
-            set_style("layout", "nope", sp)
-            check(False, "bad layout refused")
-        except ValueError:
-            check(True, "bad layout refused")
+        check(read_style(sp, tp) == {**STYLE_DEFAULTS, "prompt": "fastfetch --live"}, "reset puts them all back")
+    with tempfile.TemporaryDirectory() as td:
+        sp, legacy = os.path.join(td, "termwall.toml"), os.path.join(td, "termwall.json")
+        with open(legacy, "w", encoding="utf-8") as f:
+            json.dump({"layout": "portrait", "effects": ["crt"]}, f)
+        check(read_style(sp, os.path.join(td, "theme.json"))["layout"] == "portrait", "termwall.json still read before it's carried over")
+        ensure_config(sp)
+        check(os.path.exists(legacy + ".old") and not os.path.exists(legacy), "termwall.json carried over and renamed")
+        check(read_style(sp, os.path.join(td, "theme.json"))["effects"] == ["crt"], "termwall.toml has what termwall.json had")
     rel = parse_os_release('NAME="Ubuntu"\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\nID=ubuntu\n# comment\n')
     check(rel["PRETTY_NAME"] == "Ubuntu 24.04.1 LTS" and rel["ID"] == "ubuntu", "os-release parsed")
     check(parse_cpuinfo("processor\t: 0\nmodel name\t: Intel(R) Core(TM) i5-4590 CPU @ 3.30GHz\n")
@@ -942,6 +1132,8 @@ def selftest() -> int:
 USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall)
 
   termwall                       run the stats server here (the installer runs it at logon)
+  termwall --config              open termwall.toml: every setting, with its choices in comments
+  termwall --check               say which lines of termwall.toml are wrong
   termwall --style               every setting, its value and its choices
   termwall --style KEY VALUE     change one (KEY default: remove it, --style reset: all)
   termwall --theme NAME          a built-in palette (termwall --themes lists them)
@@ -952,13 +1144,37 @@ USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall
   termwall --version
 """
 
+def open_config() -> str:
+    """Create termwall.toml if needed and open it in the editor for .toml files (Notepad if
+    there is none), $EDITOR or xdg-open on Linux."""
+    path = ensure_config()
+    try:
+        if os.name == "nt":
+            try:
+                os.startfile(path)  # the app associated with .toml
+            except OSError:
+                subprocess.Popen(["notepad.exe", path])
+        elif os.environ.get("EDITOR"):
+            subprocess.call([os.environ["EDITOR"], path])
+        else:
+            subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        return f"{path}\n(could not open an editor: {e})"
+    return path
+
+
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):  # the bar glyphs in --style / termwall.toml
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
     if any(a in sys.argv for a in ("--help", "-h", "/?", "help")):
         print(USAGE)
         sys.exit(0)
     unknown = [a for a in sys.argv[1:2] if a.startswith("-") and a not in (
         "--selftest", "--version", "--link-we", "--unlink-we", "--link-lively", "--unlink-lively", "--stop",
-        "--themes", "--theme", "--style", "--once")]
+        "--themes", "--theme", "--style", "--once", "--config", "--check")]
     if unknown:
         sys.exit(f"unknown option {unknown[0]}\n\n{USAGE}")
     if "--selftest" in sys.argv:
@@ -981,6 +1197,18 @@ if __name__ == "__main__":
     if "--stop" in sys.argv:
         print(f"stopped {stop_running()}")
         sys.exit(0)
+    if "--config" in sys.argv:
+        print(open_config())
+        print("save the file and the wallpaper follows; termwall --check if something doesn't change")
+        sys.exit(0)
+    if "--check" in sys.argv:
+        problems = check_config(ensure_config())
+        for line in problems:
+            print(f"  {line}")
+        print(f"{STYLE_FILE}: " + ("fine" if not problems else f"{len(problems)} problem(s)"))
+        if read_theme():
+            print("note: theme.json exists (livery or another switcher): its colors win over this file")
+        sys.exit(1 if problems else 0)
     if "--themes" in sys.argv:
         for name, t in THEMES.items():
             print(f"  {name:12} {t['bg']} {t['accent']} {t['secondary']}")
@@ -1013,7 +1241,7 @@ if __name__ == "__main__":
             if k == "colors":
                 v = "set" if st.get("colors") else "-"
             print(f"  {k:8} {str(v) or '-':22} {check.help}")
-        print("  termwall --style KEY VALUE | KEY default | reset")
+        print("  termwall --style KEY VALUE | KEY default | reset    or edit it: termwall --config")
         sys.exit(0)
     if "--once" in sys.argv:
         s = Sampler()

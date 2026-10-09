@@ -57,6 +57,8 @@ Filename: "{app}\python\python.exe"; Parameters: """{app}\termwall_api.py"" --un
 Type: files; Name: "{app}\token.js"
 Type: files; Name: "{app}\theme.json"
 Type: files; Name: "{app}\termwall.json"
+Type: files; Name: "{app}\termwall.json.old"
+Type: files; Name: "{app}\termwall.toml"
 Type: filesandordirs; Name: "{app}\__pycache__"
 
 [Code]
