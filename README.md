@@ -15,7 +15,16 @@ on Linux, and a palette that can follow your wallpaper.
 |---|---|---|
 | ![minimal layout](docs/minimal.png) | ![amber theme, CRT effect](docs/crt.png) | ![portrait layout](docs/portrait.png) |
 
-The pictures come from the demo mode (`index.html?demo`) with made-up stats.
+Fourteen themes:
+
+![every built-in theme](docs/themes.gif)
+
+Layouts, bars, fonts, effects and the other settings:
+
+![layouts, bars, fonts and effects](docs/settings.gif)
+
+The pictures come from the demo mode (`index.html?demo`) with made-up stats;
+`tools/make_gifs.py` rebuilds the GIFs.
 
 ## Requirements
 

@@ -176,9 +176,9 @@ body.bars-shade .bar .f{background:linear-gradient(90deg,var(--teal),var(--mint)
   background-clip:text;color:transparent}
 /* more tube: each is paint only (pointer-events off), animated with transform/opacity */
 .fxl{display:none;position:absolute;inset:0;pointer-events:none;z-index:11;overflow:hidden}
-body.fx-flicker #stage{animation:fxflicker 5s steps(1) infinite}
-@keyframes fxflicker{0%{opacity:1}12%{opacity:.965}13%{opacity:1}47%{opacity:.98}48%{opacity:1}
-  71%{opacity:.955}72%{opacity:.99}73%{opacity:1}}
+body.fx-flicker #stage{animation:fxflicker 4s steps(1) infinite}
+@keyframes fxflicker{0%{opacity:1}9%{opacity:.86}10%{opacity:1}11%{opacity:.9}12%{opacity:1}
+  46%{opacity:.92}47%{opacity:1}70%{opacity:.84}71%{opacity:.97}72%{opacity:.88}73%{opacity:1}}
 body.fx-roll #fx-roll{display:block}
 #fx-roll::before{content:"";position:absolute;left:0;right:0;top:-220px;height:220px;
   background:linear-gradient(to bottom,transparent,rgba(255,255,255,.035) 45%,rgba(255,255,255,.05) 50%,transparent);
