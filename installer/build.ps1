@@ -42,6 +42,9 @@ if ($LASTEXITCODE -ne 0) { throw 'pip could not fetch psutil' }
 foreach ($f in 'index.html', 'logos.js', 'termwall_api.py', 'termwall.cmd', 'project.json', 'README.md', 'LICENSE', 'termwall-api.vbs') {
     Copy-Item (Join-Path $root $f) $stage
 }
+foreach ($d in 'fonts') {  # bundled web fonts and their licenses
+    Copy-Item (Join-Path $root $d) $stage -Recurse
+}
 
 # 4. the bundled Python must really run termwall
 & (Join-Path $py 'python.exe') (Join-Path $stage 'termwall_api.py') --selftest

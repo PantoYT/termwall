@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
@@ -246,7 +246,8 @@ STYLE_DOCS = {
                "color fringes, curve = rounded tube corners, noise = film grain",
     "logo": "The logo. auto = your OS; or any distro's logo whatever the OS",
 }
-STYLE_DOCS["font"] = "The font. consolas and system are always there; the others need the font installed"
+STYLE_DOCS["font"] = ("The font. cascadia comes with Windows 11; jetbrains, fira and iosevka come with termwall;\n"
+            "consolas and system (the browser's monospace) are always there")
 CONFIG_DEFAULTS = {**STYLE_DEFAULTS, "prompt": "fastfetch --live"}
 
 
@@ -360,6 +361,27 @@ def ensure_config(path: str | None = None) -> str:
         except OSError:
             pass
     return path
+
+
+def refresh_config(path: str | None = None) -> bool:
+    """Rewrite termwall.toml with this version's comments (new choices, new settings) when its
+    values parse; the values stay. True if it was rewritten. A broken file is left alone."""
+    path = path or STYLE_FILE
+    if not path.endswith(".toml"):
+        return False
+    raw, err = load_config(path)
+    if err or raw is None:
+        return False
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return False
+    fresh = render_config(raw)
+    if fresh == text:
+        return False
+    write_style(raw, path)
+    return True
 
 
 def check_config(path: str | None = None) -> list[str]:
@@ -949,6 +971,7 @@ def serve() -> None:
     httpd.RequestHandlerClass = make_handler(sampler, write_token())
     try:
         ensure_config()
+        refresh_config()  # an update brings new choices into the comments
     except OSError as e:
         print(f"note: could not write {STYLE_FILE}: {e}")
     sampler.sample()
@@ -1104,6 +1127,11 @@ def selftest() -> int:
         check(read_style(sp, tp)["theme"] == "auto", "default puts a setting back")
         set_style("reset", "", sp)
         check(read_style(sp, tp) == {**STYLE_DEFAULTS, "prompt": "fastfetch --live"}, "reset puts them all back")
+        edit('# choices: crt, glow, flicker', '# choices: crt, glow')
+        edit('layout = "fetch"', 'layout = "board"')
+        check(refresh_config(sp) and "# choices: crt, glow, flicker" in open(sp, encoding="utf-8").read()
+              and read_style(sp, tp)["layout"] == "board", "old comments are refreshed, values kept")
+        check(not refresh_config(sp), "a current file is left alone")
     with tempfile.TemporaryDirectory() as td:
         sp, tp = os.path.join(td, "termwall.toml"), os.path.join(td, "theme.json")
         set_style("layout", "htop", sp)
@@ -1197,6 +1225,7 @@ def editor_for(path: str) -> list[str] | None:
 def open_config() -> str:
     """Create termwall.toml if needed and open it in an editor."""
     path = ensure_config()
+    refresh_config(path)
     cmd = editor_for(path)
     try:
         if cmd is None:

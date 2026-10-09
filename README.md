@@ -73,7 +73,7 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 | `prompt` | the command in the prompt line, any text up to 60 characters | `fastfetch --live` |
 | `private` | `true` hides your user name, computer name and local IP (for streams and screenshots) | `false` |
 | `logo` | `auto`, `windows`, `tux`, `none`, or any distro's (`arch` on Windows works) | `auto` |
-| `font` | `cascadia`, `jetbrains`, `fira`, `iosevka`, `consolas`, `system` (the font must be installed; otherwise the next one in line is used) | `cascadia` |
+| `font` | `cascadia` (comes with Windows 11), `jetbrains`, `fira`, `iosevka` (these three come with termwall), `consolas`, `system` (the browser's monospace) | `cascadia` |
 | `scale` | `0.8` to `1.1`: smaller fits more, larger makes everything bigger | `1.0` |
 | `effects` | any mix of `crt` (scanlines and a vignette), `glow` (soft light around text), `flicker` (faint unsteady brightness), `roll` (a slow band rolling down), `chroma` (red/cyan fringes), `curve` (rounded tube corners), `noise` (film grain) | none |
 | `rotate` | minutes between layouts, `0` = off | `0` |
@@ -233,6 +233,11 @@ wallpaper plugins for that), but none has been tried. No installer for Linux eit
   2022-2026 Carter Li; the full license is at the top of `logos.js`). termwall is not
   affiliated with fastfetch.
 - The Windows logo is fastfetch's `windows_11` shape.
+- Bundled fonts in `fonts/`, unmodified, each under the SIL Open Font License 1.1 (license
+  next to it): [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (Copyright 2020
+  The JetBrains Mono Project Authors), [Fira Code](https://github.com/tonsky/FiraCode)
+  (Copyright (c) 2014 The Fira Code Project Authors), [Iosevka](https://github.com/be5invis/Iosevka)
+  Term (Copyright (c) 2015-2026 Renzhi Li).
 
 ## License
 
