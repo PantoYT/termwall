@@ -64,7 +64,7 @@ LAYOUTS = ("fetch", "board", "minimal", "htop", "portrait")
 SECTIONS = ("prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
             "procs", "swatches", "music", "status")
 FONTS = ("cascadia", "jetbrains", "fira", "iosevka", "consolas", "system")
-EFFECTS = ("crt", "glow")
+EFFECTS = ("crt", "glow", "flicker", "roll", "chroma", "curve", "noise")
 
 # Built-in palettes for when nothing writes theme.json: the six roles termwall uses, taken
 # from each project's published palette (dark variants).
@@ -190,14 +190,14 @@ def read_style(style_path: str | None = None, theme_path: str | None = None) -> 
 
 
 def resolve_palette(style: dict, theme_path: str | None = None) -> dict | None:
-    """theme.json (livery or another switcher) > "colors" > a built-in "theme" > None (the page
-    then uses the distro's colors on Linux, its defaults on Windows)."""
-    t = read_theme(theme_path) if theme_path else read_theme()
-    if t:
-        return t
+    """Your own "colors" > a built-in "theme" you picked > theme.json (livery or another
+    switcher) > None (the page then uses the distro's colors on Linux, its defaults on Windows).
+    theme "auto" is what lets a switcher color termwall."""
     if style.get("colors"):
         return style["colors"]
-    return THEMES.get(style.get("theme", "auto"))
+    if style.get("theme", "auto") != "auto":
+        return THEMES.get(style["theme"])
+    return read_theme(theme_path) if theme_path else read_theme()
 
 
 def parse_value(key: str, value: str):
@@ -229,9 +229,10 @@ STYLE_DOCS = {
               "table, minimal = the clock and one line, portrait = for a monitor turned on its side",
     "bars": "How meters are drawn: blocks ████, shade ▓▓░░, dots ■■··, line ━━──",
     "rotate": "Minutes between layouts (fetch, board, minimal, htop, portrait, again); 0 = off",
-    "theme": "A built-in palette. auto = the distro's own colors on Linux, mint on Windows.\n"
-             "termwall --themes shows them; \"colors\" below wins over this",
-    "colors": "Your own palette: six #rrggbb colors. Wins over \"theme\".",
+    "theme": "A built-in palette. auto = follow livery (or another switcher) if it runs, else the\n"
+             "distro's own colors on Linux, mint on Windows. Any other theme wins over livery;\n"
+             "\"colors\" below wins over this. termwall themes shows them",
+    "colors": "Your own palette: six #rrggbb colors. Wins over \"theme\" and over livery.",
     "clock": "24h or 12h (am/pm)",
     "seconds": "Seconds under the clock",
     "date": "long = monday 5 october, short = mon 5 oct, iso = 2026-10-05, none = no date",
@@ -239,8 +240,10 @@ STYLE_DOCS = {
     "prompt": "The command shown in the prompt line, up to 60 characters",
     "private": "true hides your user name, computer name and local IP (for screenshots and streams)",
     "scale": "Text size, 0.8 (smaller, fits more) to 1.1 (bigger)",
-    "effects": "crt = scanlines and a dark vignette, like an old monitor; glow = soft light around text.\n"
-               "[] = none, [\"crt\", \"glow\"] = both",
+    "effects": "Any mix, e.g. [\"crt\", \"glow\"]; [] = none.\n"
+               "crt = scanlines and a dark vignette, glow = soft light around text, flicker = a faint\n"
+               "unsteady brightness, roll = a slow band rolling down the screen, chroma = red/cyan\n"
+               "color fringes, curve = rounded tube corners, noise = film grain",
     "logo": "The logo. auto = your OS; or any distro's logo whatever the OS",
 }
 STYLE_DOCS["font"] = "The font. consolas and system are always there; the others need the font installed"
@@ -1066,7 +1069,12 @@ def selftest() -> int:
         check(check_config(sp) == ["from_a_newer_termwall: unknown setting (ignored)"], "--check names an unknown key")
         with open(tp, "w", encoding="utf-8") as f:
             json.dump(good, f)
-        check(resolve_palette(read_style(sp, tp), tp) == good, "theme.json (livery) wins over everything")
+        check(resolve_palette(read_style(sp, tp), tp)["accent"] == "#ff0000", "own colors win over theme.json (livery)")
+        edit("colors = {", "# colors = {")
+        check(resolve_palette(read_style(sp, tp), tp) == THEMES["nord"], "a picked theme wins over theme.json (livery)")
+        edit('theme = "nord"', 'theme = "auto"')
+        check(resolve_palette(read_style(sp, tp), tp) == good, "theme auto follows theme.json (livery)")
+        edit("# colors = {", "colors = {")
         os.remove(tp)
         set_style("hide", "none", sp)
         raw = tomllib.loads(open(sp, encoding="utf-8").read())

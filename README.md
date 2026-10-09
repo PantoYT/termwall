@@ -75,7 +75,7 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 | `logo` | `auto`, `windows`, `tux`, `none`, or any distro's (`arch` on Windows works) | `auto` |
 | `font` | `cascadia`, `jetbrains`, `fira`, `iosevka`, `consolas`, `system` (the font must be installed; otherwise the next one in line is used) | `cascadia` |
 | `scale` | `0.8` to `1.1`: smaller fits more, larger makes everything bigger | `1.0` |
-| `effects` | `crt` (scanlines and a vignette), `glow` | none |
+| `effects` | any mix of `crt` (scanlines and a vignette), `glow` (soft light around text), `flicker` (faint unsteady brightness), `roll` (a slow band rolling down), `chroma` (red/cyan fringes), `curve` (rounded tube corners), `noise` (film grain) | none |
 | `rotate` | minutes between layouts, `0` = off | `0` |
 
 **The palette**: `theme.json`, six `#rrggbb` colors:
@@ -87,8 +87,8 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 
 A wallpaper switcher writes this file on every switch:
 [livery](https://github.com/PantoYT/livery) (also by me) changes the wallpaper and recolors
-Discord, Spotify, browsers, RGB and termwall in one keypress. While `theme.json` exists, its
-palette beats `theme` and `colors`; delete it to use your own again. It may also carry a
+Discord, Spotify, browsers, RGB and termwall in one keypress. termwall uses its palette while
+`theme` is `auto` and `colors` isn't set; pick a theme or your own colors and those win. It may also carry a
 `"style"` object (`{"layout": "minimal"}`) with any of the settings above, so each palette
 can have its own look.
 
@@ -100,9 +100,9 @@ can have its own look.
 | URL `?demo&bg=…&accent=…` (all six) | palette | demo mode only |
 | `"style"` in `theme.json` | the look | always |
 | `termwall.toml` | the look | always |
-| `theme.json` palette | colors | always |
-| `colors` in `termwall.toml` | colors | without `theme.json` |
-| `theme` in `termwall.toml` | colors | without `theme.json` and `colors` |
+| `colors` in `termwall.toml` | colors | always |
+| `theme` in `termwall.toml` | colors | unless it's `auto` |
+| `theme.json` palette (livery) | colors | with `theme` auto and no `colors` |
 | your distro's colors | colors | Linux, `theme` auto |
 | built-in defaults | everything | otherwise |
 

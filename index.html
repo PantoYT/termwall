@@ -165,10 +165,31 @@ body.fx-crt #stage::after{content:"";position:absolute;inset:0;pointer-events:no
 body.fx-glow .k, body.fx-glow .pct, body.fx-glow .title, body.fx-glow .big, body.fx-glow .t,
 body.fx-glow .bar, body.fx-glow .spark, body.fx-glow .meter .mf{text-shadow:0 0 7px currentColor}
 body.fx-glow .clock .time svg{filter:drop-shadow(0 0 7px var(--mint))}
+/* shade bars: the filled part runs from secondary to accent, whatever its length */
+body.bars-shade .bar .f{background:linear-gradient(90deg,var(--teal),var(--mint));-webkit-background-clip:text;
+  background-clip:text;color:transparent}
+/* more tube: each is paint only (pointer-events off), animated with transform/opacity */
+.fxl{display:none;position:absolute;inset:0;pointer-events:none;z-index:11;overflow:hidden}
+body.fx-flicker #stage{animation:fxflicker 5s steps(1) infinite}
+@keyframes fxflicker{0%{opacity:1}12%{opacity:.965}13%{opacity:1}47%{opacity:.98}48%{opacity:1}
+  71%{opacity:.955}72%{opacity:.99}73%{opacity:1}}
+body.fx-roll #fx-roll{display:block}
+#fx-roll::before{content:"";position:absolute;left:0;right:0;top:-220px;height:220px;
+  background:linear-gradient(to bottom,transparent,rgba(255,255,255,.035) 45%,rgba(255,255,255,.05) 50%,transparent);
+  animation:fxroll 9s linear infinite}
+@keyframes fxroll{to{transform:translateY(1500px)}}
+body.fx-chroma #stage{text-shadow:-1.2px 0 rgba(255,50,90,.45),1.2px 0 rgba(40,220,255,.45)}
+body.fx-curve #fx-curve{display:block;border-radius:48px;
+  box-shadow:inset 0 0 110px 18px rgba(0,0,0,.6),0 0 0 80px #000}
+body.fx-noise #fx-noise{display:block;opacity:.07}
+#fx-noise::before{content:"";position:absolute;inset:-100px;animation:fxnoise .6s steps(3) infinite;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+@keyframes fxnoise{0%{transform:translate(0,0)}33%{transform:translate(-60px,35px)}66%{transform:translate(40px,-50px)}}
 </style>
 </head>
 <body class="L-fetch">
 <div id="stage">
+  <div class="fxl" id="fx-roll"></div><div class="fxl" id="fx-curve"></div><div class="fxl" id="fx-noise"></div>
 
   <!-- fetch: the fastfetch screen -->
   <section class="layout" id="fetch">
@@ -332,7 +353,7 @@ const FONTS = {
   fira: '"Fira Code","FiraCode Nerd Font","Fira Mono","Cascadia Mono",Consolas,monospace',
   iosevka: '"Iosevka","Iosevka Term","Cascadia Mono",Consolas,monospace',
   consolas: 'Consolas,"Cascadia Mono",monospace',
-  system: 'ui-monospace,"Cascadia Mono",Consolas,monospace',
+  system: 'monospace',  // the browser's own monospace font (Consolas on Windows)
 };
 const SECTIONS = ["prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
                   "procs", "swatches", "music", "status"];
@@ -344,7 +365,8 @@ function applyStyle(st){
   styleKey = key; style = st;
   const b = document.body, hidden = new Set(style.hide || []), fx = new Set(style.effects || []);
   for (const sec of SECTIONS) b.classList.toggle("hide-" + sec, hidden.has(sec));
-  for (const e of ["crt", "glow"]) b.classList.toggle("fx-" + e, fx.has(e));
+  for (const e of ["crt", "glow", "flicker", "roll", "chroma", "curve", "noise"]) b.classList.toggle("fx-" + e, fx.has(e));
+  for (const k of ["blocks", "shade", "dots", "line"]) b.classList.toggle("bars-" + k, (style.bars || "blocks") === k);
   document.documentElement.style.setProperty("--font", FONTS[style.font] || FONTS.cascadia);
   showLayout(); fit(); tick();
   if (last) render(last);
@@ -409,6 +431,9 @@ function distroTheme(s){
 const BARS = {blocks: ["█", "█"], shade: ["▓", "░"], dots: ["■", "·"], line: ["━", "─"]};
 function bar(p, n = 20){ const f = Math.round(Math.max(0, Math.min(100, p))/100*n);
   const [on, off] = BARS[style.bars] || BARS.blocks;
+  if (style.bars === "shade") {  // full blocks that fade out at the edge: ████▓▒░ (and a color gradient, CSS)
+    const edge = "▓▒".slice(0, Math.min(2, f)), full = "█".repeat(f - edge.length);
+    return `<span class="bar"><span class="f">${full}${edge}</span><span class="e">${off.repeat(n-f)}</span></span>`; }
   return `<span class="bar">${on.repeat(f)}<span class="e">${off.repeat(n-f)}</span></span>`; }
 const BLOCKS = "▁▂▃▄▅▆▇█";
 function spark(vals, max = 100, n = 60){
