@@ -1097,6 +1097,16 @@ def selftest() -> int:
         set_style("reset", "", sp)
         check(read_style(sp, tp) == {**STYLE_DEFAULTS, "prompt": "fastfetch --live"}, "reset puts them all back")
     with tempfile.TemporaryDirectory() as td:
+        sp, tp = os.path.join(td, "termwall.toml"), os.path.join(td, "theme.json")
+        set_style("layout", "htop", sp)
+        with open(tp, "w", encoding="utf-8") as f:
+            json.dump({**good, "style": {"layout": "fetch", "bars": "blocks"}}, f)
+        check(theme_overrides(sp, tp) == {"layout": "fetch"}, "check names what theme.json overrides")
+        os.environ.pop("TERMWALL_EDITOR", None)
+        os.environ["TERMWALL_EDITOR"] = "myedit --wait"
+        check(editor_for(sp) == ["myedit", "--wait", sp], "TERMWALL_EDITOR picks the editor")
+        os.environ.pop("TERMWALL_EDITOR")
+    with tempfile.TemporaryDirectory() as td:
         sp, legacy = os.path.join(td, "termwall.toml"), os.path.join(td, "termwall.json")
         with open(legacy, "w", encoding="utf-8") as f:
             json.dump({"layout": "portrait", "effects": ["crt"]}, f)
@@ -1132,8 +1142,11 @@ def selftest() -> int:
 USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall)
 
   termwall                       run the stats server here (the installer runs it at logon)
-  termwall --config              open termwall.toml: every setting, with its choices in comments
-  termwall --check               say which lines of termwall.toml are wrong
+  termwall config                open termwall.toml in an editor: every setting, its choices in
+                                 comments ($EDITOR, else the .toml app, else VS Code, else Notepad)
+  termwall check                 which lines of termwall.toml are wrong, and what livery overrides
+  termwall reset                 every setting back to its default
+  (the other options work without the dashes too: termwall themes, termwall version)
   termwall --style               every setting, its value and its choices
   termwall --style KEY VALUE     change one (KEY default: remove it, --style reset: all)
   termwall --theme NAME          a built-in palette (termwall --themes lists them)
@@ -1144,23 +1157,63 @@ USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall
   termwall --version
 """
 
-def open_config() -> str:
-    """Create termwall.toml if needed and open it in the editor for .toml files (Notepad if
-    there is none), $EDITOR or xdg-open on Linux."""
-    path = ensure_config()
+def editor_for(path: str) -> list[str] | None:
+    """How to open a text file for editing: $TERMWALL_EDITOR / $EDITOR, else the app Windows
+    associates with the extension, else VS Code, else Notepad (Linux: xdg-open). None = the
+    association (os.startfile)."""
+    for var in ("TERMWALL_EDITOR", "EDITOR"):
+        if os.environ.get(var):
+            import shlex
+            return [*shlex.split(os.environ[var], posix=os.name != "nt"), path]
+    if os.name != "nt":
+        return ["xdg-open", path]
+    import winreg
+    ext = os.path.splitext(path)[1]
+    try:  # the user's own "open with" choice, or a registered type with an open command
+        winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                       rf"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{ext}\UserChoice"))
+        return None
+    except OSError:
+        pass
     try:
-        if os.name == "nt":
-            try:
-                os.startfile(path)  # the app associated with .toml
-            except OSError:
-                subprocess.Popen(["notepad.exe", path])
-        elif os.environ.get("EDITOR"):
-            subprocess.call([os.environ["EDITOR"], path])
+        prog = winreg.QueryValue(winreg.HKEY_CLASSES_ROOT, ext)
+        if prog:
+            winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, rf"{prog}\shell\open\command"))
+            return None
+    except OSError:
+        pass
+    code = shutil.which("code")
+    return [code, path] if code else ["notepad.exe", path]
+
+
+def open_config() -> str:
+    """Create termwall.toml if needed and open it in an editor."""
+    path = ensure_config()
+    cmd = editor_for(path)
+    try:
+        if cmd is None:
+            os.startfile(path)
+        elif os.environ.get("EDITOR") and os.name != "nt":
+            subprocess.call(cmd)  # a terminal editor takes this terminal
         else:
-            subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=0x08000000 if os.name == "nt" and cmd[0].lower().endswith(".cmd") else 0)
     except OSError as e:
-        return f"{path}\n(could not open an editor: {e})"
+        return f"{path}\n(could not open an editor: {e}; set EDITOR, or open the file yourself)"
     return path
+
+
+def theme_overrides(style_path: str | None = None, theme_path: str | None = None) -> dict:
+    """Settings a switcher's theme.json "style" sets differently from termwall.toml: those win."""
+    themed = _json_file(theme_path or THEME_FILE)
+    sw = clean_style(themed.get("style") if isinstance(themed, dict) else None)
+    own = {**STYLE_DEFAULTS, **clean_style(load_config(style_path or STYLE_FILE)[0])}
+    return {k: v for k, v in sw.items() if own.get(k) != v}
+
+
+# termwall config / check / reset ... without the dashes
+WORDS = {"config": "--config", "check": "--check", "style": "--style", "theme": "--theme", "themes": "--themes",
+         "version": "--version", "stop": "--stop", "once": "--once", "selftest": "--selftest"}
 
 
 if __name__ == "__main__":
@@ -1169,10 +1222,14 @@ if __name__ == "__main__":
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
+    if len(sys.argv) > 1 and sys.argv[1] in WORDS:
+        sys.argv[1] = WORDS[sys.argv[1]]
+    elif len(sys.argv) > 1 and sys.argv[1] == "reset":
+        sys.argv[1:2] = ["--style", "reset"]
     if any(a in sys.argv for a in ("--help", "-h", "/?", "help")):
         print(USAGE)
         sys.exit(0)
-    unknown = [a for a in sys.argv[1:2] if a.startswith("-") and a not in (
+    unknown = [a for a in sys.argv[1:2] if a not in (
         "--selftest", "--version", "--link-we", "--unlink-we", "--link-lively", "--unlink-lively", "--stop",
         "--themes", "--theme", "--style", "--once", "--config", "--check")]
     if unknown:
@@ -1198,8 +1255,8 @@ if __name__ == "__main__":
         print(f"stopped {stop_running()}")
         sys.exit(0)
     if "--config" in sys.argv:
-        print(open_config())
-        print("save the file and the wallpaper follows; termwall --check if something doesn't change")
+        print(f"opening {open_config()}")
+        print("save it and the wallpaper follows within a second; termwall check if something doesn't change")
         sys.exit(0)
     if "--check" in sys.argv:
         problems = check_config(ensure_config())
@@ -1208,6 +1265,11 @@ if __name__ == "__main__":
         print(f"{STYLE_FILE}: " + ("fine" if not problems else f"{len(problems)} problem(s)"))
         if read_theme():
             print("note: theme.json exists (livery or another switcher): its colors win over this file")
+        over = theme_overrides()
+        if over:
+            print("note: theme.json also sets " + ", ".join(f"{k} = {_toml_value(v)}" for k, v in over.items())
+                  + " for the wallpaper shown now, and that wins over this file"
+                  + " (livery: that pack's own termwall look; livery termwall look PACK none drops it)")
         sys.exit(1 if problems else 0)
     if "--themes" in sys.argv:
         for name, t in THEMES.items():

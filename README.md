@@ -41,7 +41,7 @@ and run it. No admin rights, nothing else to install.
 A winget package is in review; once it's accepted: `winget install PantoYT.termwall`.
 
 The installer also puts a `termwall` command on your PATH (in new terminals):
-`termwall --config` (opens the settings file), `termwall --style layout board`, `termwall --version`.
+`termwall config` (opens the settings file), `termwall --style layout board`, `termwall --version`.
 
 ## Configuration
 
@@ -49,9 +49,11 @@ termwall reads two optional files from its folder (`%LOCALAPPDATA%\Programs\term
 the installer, the repo folder otherwise). Both are picked up within a second, without
 reloading the wallpaper.
 
-**The look**: `termwall.toml`. `termwall --config` opens it: every setting is in it with its
+**The look**: `termwall.toml`. `termwall config` opens it in an editor (`$EDITOR`, else the app
+set for `.toml` files, else VS Code, else Notepad): every setting is in it with its
 current value, and the comment above each one says what it does and what it accepts. Change a
-value, save, and the wallpaper follows. `termwall --check` names a line termwall can't use (an
+value, save, and the wallpaper follows. `termwall check` names a line termwall can't use, and a
+setting a switcher's `theme.json` overrides for the current wallpaper (an
 invalid value falls back to its default; a file that isn't valid TOML keeps the last good
 settings until it's fixed). From the command line instead: `termwall --style KEY VALUE`
 (`termwall --style` alone lists everything, `KEY default` puts one back, `reset` all of them).
@@ -115,7 +117,7 @@ files. The port, `127.0.0.1:9002`, is fixed.
 | the server won't start: "port 9002 is taken" | another termwall is already running (a manual one next to the installed one?) |
 | GPU shows `n/a` | only NVIDIA cards are read (through `nvidia-smi`); AMD and Intel GPUs show `n/a` |
 | Wallpaper Engine shows an old version after an update | WE plays its own copy of termwall: use the installer, or a junction ([Manual setup](#manual-setup)) |
-| colors or layout don't change | `termwall --check` names a line in `termwall.toml` it can't use. Is there a `theme.json`? Its colors and `"style"` win |
+| colors or layout don't change | `termwall check` names a line in `termwall.toml` it can't use. Is there a `theme.json`? Its colors and `"style"` win |
 
 ## How it works
 
