@@ -118,7 +118,16 @@ can have its own look.
 `TERMWALL_THEME` and `TERMWALL_STYLE` (environment variables) point the server at other
 files. The port, `127.0.0.1:9002`, is fixed.
 
-## On a phone
+## On a phone (experimental)
+
+This works, but it's a first version: pull requests welcome. Known gaps:
+
+- the `phone` layout is a first draft: spacing, sizes and what it shows could all be better,
+  and it's only been tried on one Android phone;
+- over plain HTTP the browser won't keep the screen on and the home-screen icon opens a normal
+  tab (HTTPS, e.g. through Tailscale's certificates, would fix both);
+- Wallpaper Engine's Android app doesn't take web wallpapers, so termwall can't be the phone's
+  own wallpaper yet; a small Android live-wallpaper app wrapping a WebView would do it.
 
 ```
 termwall share
