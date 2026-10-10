@@ -127,8 +127,8 @@ _text.help = "any text up to 60 characters"
 
 def _logo(v):
     import re
-    return v if isinstance(v, str) and re.fullmatch(r"auto|windows|tux|none|[a-z0-9-]{1,30}", v) else None
-_logo.help = "auto | windows | tux | none | a distro id (arch, ubuntu, nixos, ...)"
+    return v if isinstance(v, str) and re.fullmatch(r"auto|windows|tux|none|custom|[a-z0-9-]{1,30}", v) else None
+_logo.help = "auto | windows | tux | none | custom (logo.txt) | a distro id (arch, ubuntu, nixos, ...)"
 
 
 def _palette(v):
@@ -139,13 +139,14 @@ STYLE_SPEC = {
     "layout": _choice(*LAYOUTS),                        # fetch / board / minimal / htop / portrait
     "bars": _choice("blocks", "shade", "dots", "line"),
     "rotate": _int(0, 1440),                            # minutes between layouts, 0 = off
-    "theme": _choice("auto", *THEMES),                  # a built-in palette (auto = distro colors / mint)
+    "theme": _choice("auto", "distro", *THEMES),                  # a built-in palette (auto = distro colors / mint)
     "colors": _palette,                                 # your own palette (wins over "theme")
     "clock": _choice("24h", "12h"),
     "seconds": _bool,
     "date": _choice("long", "short", "iso", "none"),
     "hide": _subset(*SECTIONS),
-    "prompt": _text,                                    # the prompt's command, "fastfetch --live" by default
+    "prompt": _text,
+    "prompt_color": _choice("text", "accent", "secondary", "dim"),                                    # the prompt's command, "fastfetch --live" by default
     "private": _bool,                                   # hide user, computer name and local IP
     "font": _choice(*FONTS),
     "scale": _float(0.8, 1.1),
@@ -154,7 +155,7 @@ STYLE_SPEC = {
 }
 STYLE_DEFAULTS = {"layout": "fetch", "bars": "blocks", "rotate": 0, "theme": "auto", "clock": "24h",
                   "seconds": True, "date": "long", "hide": [], "private": False, "font": "cascadia",
-                  "scale": 1.0, "effects": [], "logo": "auto"}
+                  "scale": 1.0, "effects": [], "logo": "auto", "prompt_color": "text"}
 
 
 def clean_style(raw) -> dict:
@@ -195,9 +196,39 @@ def resolve_palette(style: dict, theme_path: str | None = None) -> dict | None:
     theme "auto" is what lets a switcher color termwall."""
     if style.get("colors"):
         return style["colors"]
+    if style.get("theme", "auto") == "distro":
+        return None  # the page colors itself from the shown distro's logo
     if style.get("theme", "auto") != "auto":
         return THEMES.get(style["theme"])
     return read_theme(theme_path) if theme_path else read_theme()
+
+
+LOGO_FILE = os.path.join(os.path.dirname(STYLE_FILE), "logo.txt")
+_logo_cache: dict = {"mtime": None, "text": None}
+
+
+def read_logo(path: str | None = None) -> str | None:
+    """logo.txt for logo = "custom": up to 40 lines of 120 characters, tabs as spaces. Re-read
+    only when it changes."""
+    path = path or LOGO_FILE
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        return None
+    if path != _logo_cache.get("path") or mtime != _logo_cache["mtime"]:
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                lines = f.read().expandtabs(4).splitlines()[:40]
+            text = "\n".join(line.rstrip()[:120] for line in lines).strip("\n") or None
+        except OSError:
+            text = None
+        _logo_cache.update(path=path, mtime=mtime, text=text)
+    return _logo_cache["text"]
+
+
+def page_extras(st: dict) -> dict:
+    """What the page needs besides stats, style and palette: the custom logo when it's used."""
+    return {"logo_text": read_logo()} if st.get("logo") == "custom" else {}
 
 
 def parse_value(key: str, value: str):
@@ -231,7 +262,8 @@ STYLE_DOCS = {
     "bars": "How meters are drawn: blocks ████, shade ▓▓░░, dots ■■··, line ━━──",
     "rotate": "Minutes between layouts (fetch, board, minimal, htop, again); 0 = off",
     "theme": "A built-in palette. auto = follow livery (or another switcher) if it runs, else the\n"
-             "distro's own colors on Linux, mint on Windows. Any other theme wins over livery;\n"
+             "colors of the distro whose logo is shown, else mint. distro = always the shown distro's\n"
+             "colors (logo = \"arch\" on Windows gives Arch's). Any theme but auto wins over livery;\n"
              "\"colors\" below wins over this. termwall themes shows them",
     "colors": "Your own palette: six #rrggbb colors. Wins over \"theme\" and over livery.",
     "clock": "24h or 12h (am/pm)",
@@ -239,13 +271,16 @@ STYLE_DOCS = {
     "date": "long = monday 5 october, short = mon 5 oct, iso = 2026-10-05, none = no date",
     "hide": "Sections to hide, e.g. [\"gpu\", \"procs\"]; [] shows everything",
     "prompt": "The command shown in the prompt line, up to 60 characters",
+    "prompt_color": "The color of that command: one of the palette's colors",
     "private": "true hides your user name, computer name and local IP (for screenshots and streams)",
     "scale": "Text size, 0.8 (smaller, fits more) to 1.1 (bigger)",
     "effects": "Any mix, e.g. [\"crt\", \"glow\"]; [] = none.\n"
                "crt = scanlines and a dark vignette, glow = soft light around text, flicker = a faint\n"
                "unsteady brightness, roll = a slow band rolling down the screen, chroma = red/cyan\n"
                "color fringes, curve = rounded tube corners, noise = film grain",
-    "logo": "The logo. auto = your OS; or any distro's logo whatever the OS",
+    "logo": "The logo. auto = your OS; or any distro's logo whatever the OS; custom = your own,\n"
+            "from logo.txt next to this file (up to 40 lines; $1 accent, $2 secondary, $3 text,\n"
+            "$4 dim switch the color from there on; $$ is a $)",
 }
 STYLE_DOCS["font"] = ("The font. cascadia comes with Windows 11; jetbrains, fira and iosevka come with termwall;\n"
             "consolas and system (the browser's monospace) are always there")
@@ -929,7 +964,7 @@ def make_handler(sampler: Sampler, token: str):
             if path == "/stats":
                 st = read_style()
                 body = json.dumps({**sampler.get(), "theme": resolve_palette(st), "style": st,
-                                   "page": page_version()}).encode()
+                                   "page": page_version(), **page_extras(st)}).encode()
             elif path == "/theme":  # tiny, polled often so palette switches land fast
                 st = read_style()
                 body = json.dumps({"theme": resolve_palette(st), "style": st, "page": page_version()}).encode()
@@ -1339,7 +1374,8 @@ def make_share_handler(sampler: Sampler, key: str):
             if path in ("stats", "theme"):
                 body = {"theme": theme, "style": st, "page": page_version()}
                 if path == "stats":  # nothing that names you or your network
-                    body = {**sampler.get(), "user": "user", "host": "computer", "local_ip": "hidden", **body}
+                    body = {**sampler.get(), "user": "user", "host": "computer", "local_ip": "hidden", **body,
+                            **page_extras(st)}
                 return self.send(200, json.dumps(body).encode(), "application/json")
             return self.send(404)
 
@@ -1626,6 +1662,20 @@ def selftest() -> int:
         else:
             os.environ["LOCALAPPDATA"] = saved
     check(steam_libraries(vdf) == ["C:\\Program Files (x86)\\Steam", "D:\\SteamLibrary"], "Steam libraries from libraryfolders.vdf")
+    with tempfile.TemporaryDirectory() as td:
+        lp = os.path.join(td, "logo.txt")
+        check(read_logo(lp) is None, "no logo.txt -> no custom logo")
+        with open(lp, "w", encoding="utf-8") as f:
+            f.write("\ufeff$1 /\\_/\\\n( o.o )\t$2x\n" + "\n".join("y" * 200 for _ in range(60)))
+        t = read_logo(lp)
+        check(t.startswith("$1 /\\_/\\\n( o.o ) $2x") and len(t.split("\n")) == 40
+              and max(len(x) for x in t.split("\n")) == 120, "logo.txt: BOM gone, tabs expanded, 40 x 120 at most")
+        check(page_extras({"logo": "custom"}) .keys() == {"logo_text"} and page_extras({"logo": "arch"}) == {},
+              "the custom logo goes out only when it's used")
+    check(resolve_palette({"theme": "distro"}, os.path.join(tempfile.gettempdir(), "no-such-theme.json")) is None,
+          "theme distro: the page colors itself")
+    check(clean_style({"prompt_color": "accent", "logo": "custom"}) == {"prompt_color": "accent", "logo": "custom"}
+          and clean_style({"prompt_color": "pink"}) == {}, "prompt_color and logo custom validated")
     # share: the QR code's structure, and the LAN server's rules
     m = qr_matrix("http://192.168.1.20:9012/?k=" + "A" * 16)
     check(len(m) == 33 and all(len(r) == 33 for r in m), "a share link fits a version 4 QR code")

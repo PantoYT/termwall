@@ -72,7 +72,7 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 | setting | values | default |
 |---|---|---|
 | `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side), `phone` (big gauges for a phone; `termwall share` picks it when the phone is upright) | `fetch` |
-| `theme` | `auto`, `mint`, `catppuccin`, `gruvbox`, `nord`, `dracula`, `tokyo-night`, `rose-pine`, `everforest`, `kanagawa`, `solarized`, `one-dark`, `monokai`, `amber`, `phosphor` (`termwall --themes`, or `termwall --theme nord`) | `auto`: your distro's colors on Linux, mint on Windows |
+| `theme` | `auto`, `distro` (the colors of the distro whose logo is shown, also on Windows, and over livery), `mint`, `catppuccin`, `gruvbox`, `nord`, `dracula`, `tokyo-night`, `rose-pine`, `everforest`, `kanagawa`, `solarized`, `one-dark`, `monokai`, `amber`, `phosphor` (`termwall --themes`, or `termwall --theme nord`) | `auto`: livery's palette if it runs, else the shown logo's distro colors, else mint |
 | `colors` | your own six colors: uncomment the `colors = { bg = "#…", … }` line in `termwall.toml` | |
 | `bars` | `blocks`, `shade`, `dots`, `line` | `blocks` |
 | `hide` | any of `prompt`, `logo`, `info`, `clock`, `cpu`, `cores`, `gpu`, `memory`, `disks`, `network`, `procs`, `swatches`, `music`, `status` (`termwall --style hide gpu,procs`; `none` shows all) | nothing |
@@ -81,7 +81,8 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 | `date` | `long` (monday 5 october), `short`, `iso`, `none` | `long` |
 | `prompt` | the command in the prompt line, any text up to 60 characters | `fastfetch --live` |
 | `private` | `true` hides your user name, computer name and local IP (for streams and screenshots) | `false` |
-| `logo` | `auto`, `windows`, `tux`, `none`, or any distro's (`arch` on Windows works) | `auto` |
+| `logo` | `auto`, `windows`, `tux`, `none`, `custom` (your own ASCII art from `logo.txt` next to `termwall.toml`: up to 40 lines, `$1` accent, `$2` secondary, `$3` text, `$4` dim switch the color), or any distro's (`arch` on Windows works) | `auto` |
+| `prompt_color` | `text`, `accent`, `secondary`, `dim`: the color of the command in the prompt line | `text` |
 | `font` | `cascadia` (comes with Windows 11), `jetbrains`, `fira`, `iosevka` (these three come with termwall), `consolas`, `system` (the browser's monospace) | `cascadia` |
 | `scale` | `0.8` to `1.1`: smaller fits more, larger makes everything bigger | `1.0` |
 | `effects` | any mix of `crt` (scanlines and a vignette), `glow` (soft light around text), `flicker` (faint unsteady brightness), `roll` (a slow band rolling down), `chroma` (red/cyan fringes), `curve` (rounded tube corners), `noise` (film grain) | none |
