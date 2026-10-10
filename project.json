@@ -2,5 +2,33 @@
   "file": "index.html",
   "title": "termwall",
   "type": "web",
-  "description": "fastfetch-style live system wallpaper (needs termwall_api.py on 127.0.0.1:9002)"
+  "description": "fastfetch-style live system wallpaper (needs termwall_api.py on 127.0.0.1:9002)",
+  "general": {
+    "properties": {
+      "screen": {
+        "order": 0,
+        "text": "termwall screen (which [screen.N] of termwall.toml)",
+        "type": "combo",
+        "value": "1",
+        "options": [
+          {
+            "label": "1",
+            "value": "1"
+          },
+          {
+            "label": "2",
+            "value": "2"
+          },
+          {
+            "label": "3",
+            "value": "3"
+          },
+          {
+            "label": "4",
+            "value": "4"
+          }
+        ]
+      }
+    }
+  }
 }

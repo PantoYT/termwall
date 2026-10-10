@@ -352,6 +352,9 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
 const TOKEN = encodeURIComponent(window.TERMWALL_TOKEN || "");
 const API = window.TERMWALL_API || "http://127.0.0.1:9002/stats";  // "stats" when served by termwall share
 const SHARE = window.TERMWALL_SHARE === true;
+// Wallpaper Engine: the "termwall screen" property (project.json), set per monitor in WE
+let SCREEN = null;
+window.wallpaperPropertyListener = {applyUserProperties(p){ if (p.screen) { SCREEN = String(p.screen.value); if (last) render(last); } }};
 function withToken(url){ return url + "?t=" + TOKEN; }
 // API restarted → new token → 403. Reload (re-reads token.js), at most once per 10 s.
 function onForbidden(){
@@ -670,7 +673,7 @@ async function poll(){
     if (s && s.time) {
       if (checkPage(s)) return;
       applyStyle(s.style); ownTheme = distroTheme(s); applyTheme(s.theme); render(s); failures = 0;
-      put("status", `<span class="ok">●</span> ${SHARE ? "termwall share" : "termwall-api · 127.0.0.1:9002"} · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`); }
+      put("status", `<span class="ok">●</span> ${SHARE ? "termwall share" : "termwall-api · 127.0.0.1:9002"}${SCREEN ? " · screen " + SCREEN : ""} · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`); }
   } catch (e) {
     failures++;
     put("status", `<span class="bad">●</span> api offline · run <span class="g">python termwall_api.py</span>` + (failures > 1 ? ` <span class="d">(${failures})</span>` : ""));
