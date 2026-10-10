@@ -71,7 +71,7 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 
 | setting | values | default |
 |---|---|---|
-| `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side), `phone` (big gauges for a phone; `termwall share` picks it when the phone is upright) | `fetch` |
+| `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side), `phone` (big gauges for a phone; `termwall share` picks it when the phone is upright), `logo` (the logo as big as the screen, with user, system and the palette under it) | `fetch` |
 | `theme` | `auto`, `logo` (the logo's colors over everything: a picture's own with `logo = "image"`, else the shown distro's, also on Windows; `distro` is the same), `mint`, `catppuccin`, `gruvbox`, `nord`, `dracula`, `tokyo-night`, `rose-pine`, `everforest`, `kanagawa`, `solarized`, `one-dark`, `monokai`, `amber`, `phosphor` (`termwall --themes`, or `termwall --theme nord`) | `auto`: livery's palette if it runs, else the logo's colors, else mint |
 | `colors` | your own six colors: uncomment the `colors = { bg = "#…", … }` line in `termwall.toml` | |
 | `bars` | `blocks`, `shade`, `dots`, `line` | `blocks` |

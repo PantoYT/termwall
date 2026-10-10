@@ -23,7 +23,7 @@ body{color:var(--grey);font:18px/1.34 var(--font);-webkit-font-smoothing:antiali
 #stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
 .layout{position:absolute;inset:0;display:none}
 body.L-fetch #fetch, body.L-board #board, body.L-minimal #minimal, body.L-htop #htop, body.L-portrait #portrait,
-body.L-phone #phone{display:block}
+body.L-phone #phone, body.L-logo #logo{display:block}
 .k{color:var(--mint)} .t{color:var(--teal)} .d{color:var(--dim)} .g{color:var(--grey)}
 .cursor{display:inline-block;width:.6em;height:1.1em;background:var(--mint);vertical-align:-.18em;animation:blink 1.1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
@@ -148,6 +148,13 @@ body.L-minimal #minimal{display:flex;flex-direction:column;align-items:center;ju
 #htop .status{left:90px;bottom:40px}
 
 /* ── layout: portrait (a monitor turned on its side: 1080×1920) ── */
+/* logo: the logo as big as the screen allows, with who and where under it */
+body.L-logo #logo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px}
+#logo pre.logo{width:fit-content}
+#logo .title{font-size:40px}
+#logo .os{font-size:24px;color:var(--dim);margin-top:-18px}
+#logo .swatches span{width:64px;height:22px}
+#logo .status{left:90px;bottom:60px}
 /* phone: few things, big, for a 6-inch screen (termwall share picks it when the phone is upright) */
 #phone{padding:120px 70px 110px;font-size:28px}
 body.L-phone #phone{display:flex;flex-direction:column;justify-content:space-between}
@@ -316,6 +323,15 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
     <div class="status" data-p="status" data-sec="status"></div>
   </section>
 
+  <!-- logo: the logo, huge; for a monitor that only has to look good -->
+  <section class="layout" id="logo">
+    <pre class="logo" data-p="logo" data-sec="logo"></pre>
+    <div class="title" data-p="title" data-sec="info"></div>
+    <div class="os" data-p="logo-os" data-sec="info"></div>
+    <div class="swatches" data-p="swatches" data-sec="swatches"></div>
+    <div class="status" data-p="status" data-sec="status"></div>
+  </section>
+
   <!-- phone: big gauges and a short list, for a phone on a stand -->
   <section class="layout" id="phone">
     <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div></div>
@@ -396,7 +412,7 @@ if (SHARE) {  // a tap goes fullscreen; the screen stays on where the browser al
 }
 
 // ── the look: layout, clock, bars (from termwall.json / theme.json through the API) ──
-const LAYOUTS = ["fetch", "board", "minimal", "htop", "portrait", "phone"];
+const LAYOUTS = ["fetch", "board", "minimal", "htop", "portrait", "phone", "logo"];
 const ROTATION = ["fetch", "board", "minimal", "htop"];  // "rotate" cycles the landscape ones
 let style = {layout: "fetch", bars: "blocks", rotate: 0, clock: "24h", seconds: true, date: "long", hide: [],
              private: false, font: "cascadia", scale: 1, effects: [], logo: "auto"}, styleKey = "";
@@ -578,6 +594,7 @@ function playImageLogo(){
   clearTimeout(IMG.timer);
   if (IMG.frames.length < 2) return;
   IMG.timer = setTimeout(() => {
+    if (style.logo !== "image") return;  // switched to another logo meanwhile: stop for good
     IMG.i = (IMG.i + 1) % IMG.frames.length;
     put("logo", imageLogoHtml());
     playImageLogo();
@@ -680,8 +697,17 @@ function logoTheme(s){
   if (style.logo === "image" && IMG.frames.length) return IMG.palette || (IMG.palette = imagePalette(IMG.frames[0]));
   return distroTheme(s);
 }
+// layout "logo": the logo grows until it fills about two thirds of the height or 85% of the width
+function fitBigLogo(){
+  const el = document.querySelector('#logo pre.logo');
+  if (!el || currentLayout() !== "logo") return;
+  const lines = el.textContent.split("\n"), rows = lines.length, cols = Math.max(1, ...lines.map(l => l.length));
+  const [w, h] = stageSize(), lh = style.logo === "image" ? 1 : 1.22;
+  el.style.fontSize = Math.max(10, Math.floor(Math.min(h * 0.62 / (rows * lh), w * 0.85 / (cols * 0.6)))) + "px";
+}
 function pickLogo(s){
   const want = style.logo || "auto";
+  if (want !== "image" && IMG.key) { clearTimeout(IMG.timer); IMG.key = null; IMG.frames = []; IMG.palette = null; }
   if (want === "windows") return WIN_LOGO;
   if (want === "tux") return TUX;
   if (want === "custom") return s.logo_text ? customLogo(s.logo_text) : TUX;
@@ -797,6 +823,8 @@ function render(s){
     `<div class="gv">${v == null ? "n/a" : v.toFixed(0) + "<small>%</small>"}</div>${bar(v ?? 0, 14)}` +
     (hist ? `<div class="spark">${spark(hist, 100, 26)}</div>` : "") + `<div class="gs">${sub}</div></div>`;
   put("phone-os", `${esc(s.os)} · up ${uptime(s.uptime)}`);
+  put("logo-os", `${esc(s.os)} · up ${uptime(s.uptime)}`);
+  fitBigLogo();
   put("phone-gauges", [
     hidden.has("cpu") ? "" : gauge("CPU", s.cpu, `${s.cores} threads · ${((s.cpu_freq || 0) / 1000).toFixed(2)} GHz`, s.history.cpu),
     hidden.has("gpu") ? "" : gauge("GPU", g ? g.util ?? 0 : null, g ? `${g.temp ?? "-"}°C · ${g.power != null ? g.power.toFixed(0) + " W" : "-"}` : "no NVIDIA GPU", g ? s.history.gpu : null),

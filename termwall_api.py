@@ -60,7 +60,7 @@ def valid_theme(t) -> bool:
 # is optional; anything unknown or invalid is dropped, so an old or hand-edited file can't break
 # the page. termwall.json (before 1.2) is carried over once.
 STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "termwall.toml")
-LAYOUTS = ("fetch", "board", "minimal", "htop", "portrait", "phone")
+LAYOUTS = ("fetch", "board", "minimal", "htop", "portrait", "phone", "logo")
 SECTIONS = ("prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
             "procs", "swatches", "music", "status")
 FONTS = ("cascadia", "jetbrains", "fira", "iosevka", "consolas", "system")
@@ -296,7 +296,8 @@ STYLE_DOCS = {
     "layout": "How the screen is laid out.\n"
               "fetch = the fastfetch screen, board = boxes like btop, htop = meters and a big process\n"
               "table, minimal = the clock and one line, portrait = for a monitor turned on its side,\n"
-              "phone = big gauges for a phone (termwall share uses it when the phone is upright)",
+              "phone = big gauges for a phone (termwall share uses it when the phone is upright),\n"
+              "logo = the logo as big as the screen, with who you are under it (a second monitor)",
     "bars": "How meters are drawn: blocks ████, shade ▓▓░░, dots ■■··, line ━━──",
     "rotate": "Minutes between layouts (fetch, board, minimal, htop, again); 0 = off",
     "theme": "A built-in palette. auto = follow livery (or another switcher) if it runs, else the\n"
