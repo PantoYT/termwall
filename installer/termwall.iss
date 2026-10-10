@@ -33,6 +33,9 @@ CloseApplications=force
 ChangesEnvironment=yes
 RestartApplications=no
 
+[Messages]
+FinishedLabel=Setup has finished installing [name] on your computer.%n%nThe termwall command works in terminals opened from now on: close every open terminal window (all of Windows Terminal, not just a tab) and open a new one.
+
 [Files]
 Source: "..\build\stage\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
