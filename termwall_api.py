@@ -348,6 +348,30 @@ def _toml_value(v) -> str:
     raise TypeError(type(v))
 
 
+def distro_ids(path: str | None = None) -> list[str]:
+    """The distro logos termwall has, from logos.js next to the page."""
+    import re
+    try:
+        with open(path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "logos.js"), encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return []
+    start = text.find("window.DISTRO_LOGOS")
+    end = text.find("window.DISTRO_COLORS", start)
+    return re.findall(r'"([a-z0-9_-]+)":\[\[\[', text[start:end if end > 0 else len(text)]) if start >= 0 else []
+
+
+def _wrapped(prefix: str, words: list[str], width: int = 92) -> list[str]:
+    lines, cur = [], prefix
+    for w in words:
+        if len(cur) + len(w) + 2 > width and cur.strip() != prefix.strip():
+            lines.append(cur.rstrip(", ") + ",")
+            cur = "#   "
+        cur += w + ", "
+    lines.append(cur.rstrip(", "))
+    return lines
+
+
 def render_config(cur: dict) -> str:
     """termwall.toml with every setting, its current value, what it does and what it accepts.
     Keys this version doesn't know (from a newer termwall) are kept at the end."""
@@ -373,6 +397,9 @@ def render_config(cur: dict) -> str:
             elif k == "theme":
                 out.append("# choices: auto, logo, distro, " + ", ".join(list(THEMES)[:5]) + ",")
                 out.append("#          " + ", ".join(list(THEMES)[5:]) + "   default: \"auto\"")
+            elif k == "logo":
+                out.append('# choices: auto | windows | tux | none | custom | image | a distro:   default: "auto"')
+                out += _wrapped("#   ", distro_ids())
             elif k != "prompt":
                 choices = "true | false" if check is _bool else check.help
                 out.append(f"# choices: {choices}   default: {_toml_value(CONFIG_DEFAULTS[k])}")
@@ -1741,6 +1768,10 @@ def selftest() -> int:
     check(clean_style({"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"})
           == {"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"}
           and clean_style({"logo_width": 500, "logo_chars": "x"}) == {}, "logo image settings validated")
+    ids = distro_ids()
+    check("arch" in ids and "nixos" in ids and len(ids) >= 20, "the distro list comes from logos.js")
+    check(all(f"#   {x}" in render_config({}) or f", {x}" in render_config({}) for x in ("arch", "mx")),
+          "termwall.toml lists the distros")
     check(resolve_palette({"theme": "logo"}, os.path.join(tempfile.gettempdir(), "no-such-theme.json")) is None,
           "theme logo: the page colors itself")
     check(resolve_palette({"theme": "distro"}, os.path.join(tempfile.gettempdir(), "no-such-theme.json")) is None,
