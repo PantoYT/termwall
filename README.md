@@ -81,7 +81,8 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 | `date` | `long` (monday 5 october), `short`, `iso`, `none` | `long` |
 | `prompt` | the command in the prompt line, any text up to 60 characters | `fastfetch --live` |
 | `private` | `true` hides your user name, computer name and local IP (for streams and screenshots) | `false` |
-| `logo` | `auto`, `windows`, `tux`, `none`, `custom` (your own ASCII art from `logo.txt` next to `termwall.toml`: up to 40 lines, `$1` accent, `$2` secondary, `$3` text, `$4` dim switch the color), or any distro's (`arch` on Windows works) | `auto` |
+| `logo` | `auto`, `windows`, `tux`, `none`, `image` (see below), `custom` (your own ASCII art from `logo.txt` next to `termwall.toml`: up to 40 lines, `$1` accent, `$2` secondary, `$3` text, `$4` dim switch the color), or any distro's (`arch` on Windows works) | `auto` |
+| `logo_width`, `logo_chars`, `logo_colors` | with `logo = "image"`: a picture or an animated GIF (`logo.gif`, `.png`, `.jpg` or `.webp` next to `termwall.toml`, up to 8 MB) turned into text. `logo_width` 12-120 characters; `logo_chars` `blocks` (half blocks, two pixels per character, best for pixel art) or `ascii`; `logo_colors` `image` (its own colors) or `palette` (its light and dark in the palette's colors, so it follows the theme and livery). GIF frames play at their own speed | `40`, `blocks`, `image` |
 | `prompt_color` | `text`, `accent`, `secondary`, `dim`: the color of the command in the prompt line | `text` |
 | `font` | `cascadia` (comes with Windows 11), `jetbrains`, `fira`, `iosevka` (these three come with termwall), `consolas`, `system` (the browser's monospace) | `cascadia` |
 | `scale` | `0.8` to `1.1`: smaller fits more, larger makes everything bigger | `1.0` |

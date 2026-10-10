@@ -127,8 +127,8 @@ _text.help = "any text up to 60 characters"
 
 def _logo(v):
     import re
-    return v if isinstance(v, str) and re.fullmatch(r"auto|windows|tux|none|custom|[a-z0-9-]{1,30}", v) else None
-_logo.help = "auto | windows | tux | none | custom (logo.txt) | a distro id (arch, ubuntu, nixos, ...)"
+    return v if isinstance(v, str) and re.fullmatch(r"auto|windows|tux|none|custom|image|[a-z0-9-]{1,30}", v) else None
+_logo.help = "auto | windows | tux | none | custom (logo.txt) | image (logo.gif/png/jpg/webp) | a distro id"
 
 
 def _palette(v):
@@ -146,7 +146,10 @@ STYLE_SPEC = {
     "date": _choice("long", "short", "iso", "none"),
     "hide": _subset(*SECTIONS),
     "prompt": _text,
-    "prompt_color": _choice("text", "accent", "secondary", "dim"),                                    # the prompt's command, "fastfetch --live" by default
+    "prompt_color": _choice("text", "accent", "secondary", "dim"),
+    "logo_width": _int(12, 120),
+    "logo_chars": _choice("blocks", "ascii"),
+    "logo_colors": _choice("image", "palette"),                                    # the prompt's command, "fastfetch --live" by default
     "private": _bool,                                   # hide user, computer name and local IP
     "font": _choice(*FONTS),
     "scale": _float(0.8, 1.1),
@@ -155,7 +158,8 @@ STYLE_SPEC = {
 }
 STYLE_DEFAULTS = {"layout": "fetch", "bars": "blocks", "rotate": 0, "theme": "auto", "clock": "24h",
                   "seconds": True, "date": "long", "hide": [], "private": False, "font": "cascadia",
-                  "scale": 1.0, "effects": [], "logo": "auto", "prompt_color": "text"}
+                  "scale": 1.0, "effects": [], "logo": "auto", "prompt_color": "text",
+                  "logo_width": 40, "logo_chars": "blocks", "logo_colors": "image"}
 
 
 def clean_style(raw) -> dict:
@@ -226,9 +230,43 @@ def read_logo(path: str | None = None) -> str | None:
     return _logo_cache["text"]
 
 
+IMAGE_TYPES = {".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+               ".webp": "image/webp"}
+
+
+def logo_image(folder: str | None = None) -> str | None:
+    """logo.gif / .png / .jpg / .jpeg / .webp next to termwall.toml (the first found), up to 8 MB."""
+    folder = folder or os.path.dirname(STYLE_FILE)
+    for ext in IMAGE_TYPES:
+        f = os.path.join(folder, "logo" + ext)
+        try:
+            if os.path.getsize(f) <= 8 * 1024 * 1024:
+                return f
+        except OSError:
+            pass
+    return None
+
+
 def page_extras(st: dict) -> dict:
-    """What the page needs besides stats, style and palette: the custom logo when it's used."""
-    return {"logo_text": read_logo()} if st.get("logo") == "custom" else {}
+    """What the page needs besides stats, style and palette: the custom logo when it's used,
+    or which logo image to load (its mtime, so an edited file is fetched again)."""
+    if st.get("logo") == "custom":
+        return {"logo_text": read_logo()}
+    if st.get("logo") == "image":
+        f = logo_image()
+        return {"logo_image": os.stat(f).st_mtime_ns if f else None}
+    return {}
+
+
+def logo_image_bytes() -> tuple[bytes, str] | None:
+    f = logo_image()
+    if not f:
+        return None
+    try:
+        with open(f, "rb") as fh:
+            return fh.read(), IMAGE_TYPES[os.path.splitext(f)[1].lower()]
+    except OSError:
+        return None
 
 
 def parse_value(key: str, value: str):
@@ -280,7 +318,13 @@ STYLE_DOCS = {
                "color fringes, curve = rounded tube corners, noise = film grain",
     "logo": "The logo. auto = your OS; or any distro's logo whatever the OS; custom = your own,\n"
             "from logo.txt next to this file (up to 40 lines; $1 accent, $2 secondary, $3 text,\n"
-            "$4 dim switch the color from there on; $$ is a $)",
+            "$4 dim switch the color from there on; $$ is a $); image = a picture or an animated\n"
+            "GIF turned into text: logo.gif, .png, .jpg or .webp next to this file",
+    "logo_width": "logo = image: how many characters wide",
+    "logo_chars": "logo = image: blocks = half blocks, two pixels per character (best for pixel art);\n"
+                  "ascii = characters from light to dense",
+    "logo_colors": "logo = image: image = the picture's own colors; palette = its light and dark\n"
+                   "turned into the palette's colors (follows the theme and livery)",
 }
 STYLE_DOCS["font"] = ("The font. cascadia comes with Windows 11; jetbrains, fira and iosevka come with termwall;\n"
             "consolas and system (the browser's monospace) are always there")
@@ -961,6 +1005,16 @@ def make_handler(sampler: Sampler, token: str):
                 self.send_header("Access-Control-Allow-Origin", "*")  # lets the page see the 403 and reload
                 self.end_headers()
                 return
+            if path == "/logo-image":  # logo = image: the picture itself, decoded by the page
+                img = logo_image_bytes()
+                self.send_response(200 if img else 404)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Type", img[1] if img else "text/plain")
+                self.send_header("Content-Length", str(len(img[0]) if img else 0))
+                self.end_headers()
+                if img:
+                    self.wfile.write(img[0])
+                return
             if path == "/stats":
                 st = read_style()
                 body = json.dumps({**sampler.get(), "theme": resolve_palette(st), "style": st,
@@ -1371,6 +1425,9 @@ def make_share_handler(sampler: Sampler, key: str):
                 return self.send(200, share_manifest(key, theme), "application/manifest+json")
             if path in ("icon-192.png", "icon-512.png"):
                 return self.send(200, share_icon(int(path[5:8]), theme), "image/png", "public, max-age=3600")
+            if path == "logo-image":
+                img = logo_image_bytes()
+                return self.send(200, img[0], img[1]) if img else self.send(404)
             if path in ("stats", "theme"):
                 body = {"theme": theme, "style": st, "page": page_version()}
                 if path == "stats":  # nothing that names you or your network
@@ -1672,6 +1729,16 @@ def selftest() -> int:
               and max(len(x) for x in t.split("\n")) == 120, "logo.txt: BOM gone, tabs expanded, 40 x 120 at most")
         check(page_extras({"logo": "custom"}) .keys() == {"logo_text"} and page_extras({"logo": "arch"}) == {},
               "the custom logo goes out only when it's used")
+    with tempfile.TemporaryDirectory() as td:
+        check(logo_image(td) is None, "no logo image -> none")
+        with open(os.path.join(td, "logo.png"), "wb") as f:
+            f.write(png(2, 2, [[(255, 0, 0), (0, 0, 0)], [(0, 0, 0), (0, 0, 255)]]))
+        with open(os.path.join(td, "logo.gif"), "wb") as f:
+            f.write(b"GIF89a")
+        check(os.path.basename(logo_image(td)) == "logo.gif", "logo image: gif first, then png")
+    check(clean_style({"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"})
+          == {"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"}
+          and clean_style({"logo_width": 500, "logo_chars": "x"}) == {}, "logo image settings validated")
     check(resolve_palette({"theme": "distro"}, os.path.join(tempfile.gettempdir(), "no-such-theme.json")) is None,
           "theme distro: the page colors itself")
     check(clean_style({"prompt_color": "accent", "logo": "custom"}) == {"prompt_color": "accent", "logo": "custom"}
