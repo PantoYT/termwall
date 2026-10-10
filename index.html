@@ -569,7 +569,8 @@ async function loadImageLogo(url, cols, chars){
     }
   } catch (e) { frames = []; }
   if (IMG.key !== key) return;  // a newer setting won while this was loading
-  IMG.frames = frames; IMG.i = 0; IMG.failed = !frames.length;
+  IMG.frames = frames; IMG.i = 0; IMG.failed = !frames.length; IMG.palette = null;
+  if (last) { ownTheme = logoTheme(last); applyTheme(serverTheme); }  // theme "logo" follows the new picture
   if (last) render(last);
   playImageLogo();
 }
@@ -635,6 +636,49 @@ function frameHtml(fr, mode, pal, cs){
     lines.push(out);
   }
   return lines.join("\n");
+}
+// theme "logo" (and "auto" without livery): a palette from the logo picture. The most common
+// vivid hue is the accent, a second one at least 60 degrees away the secondary; background
+// and text are built around them like a distro's.
+function imagePalette(fr){
+  if (!fr) return null;
+  const buckets = Array.from({length: 12}, () => ({w: 0, r: 0, g: 0, b: 0}));
+  for (let o = 0; o < fr.px.length; o += 4) {
+    if (fr.px[o + 3] < 128) continue;
+    const r = fr.px[o], g = fr.px[o + 1], b = fr.px[o + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    if (d < 40 || mx < 60) continue;  // greys and near-black say nothing about the colors
+    let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+    const bk = buckets[Math.floor(h / 30) % 12], w = d / 255;
+    bk.w += w; bk.r += r * w; bk.g += g * w; bk.b += b * w;
+  }
+  const order = buckets.map((bk, i) => [i, bk]).filter(([, bk]) => bk.w > 0).sort((a, b) => b[1].w - a[1].w);
+  if (!order.length) return null;
+  const color = bk => [bk.r / bk.w, bk.g / bk.w, bk.b / bk.w];
+  const lift = c => {  // readable on a dark background
+    const l = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+    const k = l < 0.45 ? 0.45 / Math.max(l, 0.05) : 1;
+    return "#" + c.map(v => Math.min(255, Math.round(v * k)).toString(16).padStart(2, "0")).join("");
+  };
+  const first = order[0];
+  const far = order.find(([i]) => Math.min(Math.abs(i - first[0]), 12 - Math.abs(i - first[0])) >= 2);
+  const accent = lift(color(first[1]));
+  const secondary = far ? lift(color(far[1])) : mixHex(accent, "#808080", 0.4);
+  return paletteAround(accent, secondary);
+}
+function mixHex(a, b, t){
+  return "#" + [1, 3, 5].map(i => Math.round(parseInt(a.substr(i, 2), 16) * (1 - t) +
+    parseInt(b.substr(i, 2), 16) * t).toString(16).padStart(2, "0")).join("");
+}
+function paletteAround(accent, secondary){
+  return {bg: mixHex("#141414", accent, 0.04), accent, secondary, text: mixHex("#9a9a9a", accent, 0.12),
+          dim: mixHex("#4a4a4a", accent, 0.15), faint: mixHex("#222222", accent, 0.08)};
+}
+// the page's own palette (when the server sends none): the logo picture's, else the distro's
+function logoTheme(s){
+  if (style.logo === "image" && IMG.frames.length) return IMG.palette || (IMG.palette = imagePalette(IMG.frames[0]));
+  return distroTheme(s);
 }
 function pickLogo(s){
   const want = style.logo || "auto";
@@ -772,7 +816,7 @@ function render(s){
 // Palette from the API (theme.json, written by livery). Only swaps CSS variables — instant, no reload.
 const THEME_VARS = {bg: "--bg", accent: "--mint", secondary: "--teal", text: "--grey", dim: "--dim", faint: "--faint"};
 let themeKey = "";
-let ownTheme = null;  // the distro's colors, for when nothing writes theme.json
+let ownTheme = null, serverTheme = null;  // the logo's colors, for when the server sends no palette
 function applyTheme(t){
   t = t || ownTheme;
   const key = t ? JSON.stringify(t) : "";
@@ -792,7 +836,7 @@ async function poll(){
     const s = await r.json();
     if (s && s.time) {
       if (checkPage(s)) return;
-      applyStyle(s.style); ownTheme = distroTheme(s); applyTheme(s.theme); render(s); failures = 0;
+      applyStyle(s.style); ownTheme = logoTheme(s); serverTheme = s.theme; applyTheme(s.theme); render(s); failures = 0;
       put("status", `<span class="ok">●</span> ${SHARE ? "termwall share" : "termwall-api · 127.0.0.1:9002"}${SCREEN ? " · screen " + SCREEN : ""} · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`); }
   } catch (e) {
     failures++;
@@ -843,7 +887,7 @@ if (DEMO) {
   const keys = ["bg", "accent", "secondary", "text", "dim", "faint"];
   var URL_PALETTE = keys.every(k => /^[0-9a-f]{6}$/i.test(URLQ.get(k) || ""));
   if (keys.every(k => /^[0-9a-f]{6}$/i.test(URLQ.get(k) || ""))) applyTheme(Object.fromEntries(keys.map(k => [k, "#" + URLQ.get(k)])));
-  const demo = () => { const s = demoStats(); ownTheme = distroTheme(s);
+  const demo = () => { const s = demoStats(); ownTheme = logoTheme(s);
     if (!URL_PALETTE) applyTheme(null);
     applyStyle(style); render(s);
     put("status", `<span class="ok">●</span> demo · made-up stats`); };
@@ -865,7 +909,7 @@ async function pollTheme(){
     const r = await fetch(withToken(API.replace(/stats$/, "theme")), {cache: "no-store"});
     if (r.status === 403) { onForbidden(); return; }
     const s = await r.json();
-    if (!checkPage(s)) { applyTheme(s.theme); applyStyle(s.style); }
+    if (!checkPage(s)) { serverTheme = s.theme; applyTheme(s.theme); applyStyle(s.style); }
   } catch (e) {}
 }
 if (!DEMO) setInterval(pollTheme, 250);

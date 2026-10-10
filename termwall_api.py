@@ -139,7 +139,7 @@ STYLE_SPEC = {
     "layout": _choice(*LAYOUTS),                        # fetch / board / minimal / htop / portrait
     "bars": _choice("blocks", "shade", "dots", "line"),
     "rotate": _int(0, 1440),                            # minutes between layouts, 0 = off
-    "theme": _choice("auto", "distro", *THEMES),                  # a built-in palette (auto = distro colors / mint)
+    "theme": _choice("auto", "logo", "distro", *THEMES),                  # a built-in palette (auto = distro colors / mint)
     "colors": _palette,                                 # your own palette (wins over "theme")
     "clock": _choice("24h", "12h"),
     "seconds": _bool,
@@ -200,8 +200,8 @@ def resolve_palette(style: dict, theme_path: str | None = None) -> dict | None:
     theme "auto" is what lets a switcher color termwall."""
     if style.get("colors"):
         return style["colors"]
-    if style.get("theme", "auto") == "distro":
-        return None  # the page colors itself from the shown distro's logo
+    if style.get("theme", "auto") in ("logo", "distro"):
+        return None  # the page colors itself from the logo (a picture's colors, or the distro's)
     if style.get("theme", "auto") != "auto":
         return THEMES.get(style["theme"])
     return read_theme(theme_path) if theme_path else read_theme()
@@ -300,9 +300,10 @@ STYLE_DOCS = {
     "bars": "How meters are drawn: blocks ████, shade ▓▓░░, dots ■■··, line ━━──",
     "rotate": "Minutes between layouts (fetch, board, minimal, htop, again); 0 = off",
     "theme": "A built-in palette. auto = follow livery (or another switcher) if it runs, else the\n"
-             "colors of the distro whose logo is shown, else mint. distro = always the shown distro's\n"
-             "colors (logo = \"arch\" on Windows gives Arch's). Any theme but auto wins over livery;\n"
-             "\"colors\" below wins over this. termwall themes shows them",
+             "logo's colors, else mint. logo = always the logo's colors: a picture's own (logo =\n"
+             "\"image\") or the shown distro's (logo = \"arch\" on Windows gives Arch's); distro is\n"
+             "the same. Any theme but auto wins over livery; \"colors\" below wins over this.\n"
+             "termwall themes shows them",
     "colors": "Your own palette: six #rrggbb colors. Wins over \"theme\" and over livery.",
     "clock": "24h or 12h (am/pm)",
     "seconds": "Seconds under the clock",
@@ -1739,6 +1740,8 @@ def selftest() -> int:
     check(clean_style({"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"})
           == {"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"}
           and clean_style({"logo_width": 500, "logo_chars": "x"}) == {}, "logo image settings validated")
+    check(resolve_palette({"theme": "logo"}, os.path.join(tempfile.gettempdir(), "no-such-theme.json")) is None,
+          "theme logo: the page colors itself")
     check(resolve_palette({"theme": "distro"}, os.path.join(tempfile.gettempdir(), "no-such-theme.json")) is None,
           "theme distro: the page colors itself")
     check(clean_style({"prompt_color": "accent", "logo": "custom"}) == {"prompt_color": "accent", "logo": "custom"}
