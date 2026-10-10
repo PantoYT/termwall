@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
@@ -962,6 +962,459 @@ class ExclusiveServer(ThreadingHTTPServer):
         super().server_bind()
 
 
+# ─── share: the page on a phone (or any screen in the house) ─────────────────────────────
+#
+# termwall share turns on a second, read-only server on the LAN (0.0.0.0:9012). It serves the
+# page itself, so a phone needs nothing but its browser: scan the QR code, add the page to the
+# home screen. The link carries a random key (share.json next to the server; termwall share
+# new-key replaces it). User name, computer name and local IP never leave the PC on this
+# server, and the Host header has to be an IP address (a web page can't point a name at it).
+
+SHARE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "share.json")
+SHARE_PORT = 9012
+SHARE_STATIC = {"logos.js": "text/javascript; charset=utf-8"}
+
+
+def read_share(path: str | None = None) -> dict:
+    raw = _json_file(path or SHARE_FILE)
+    raw = raw if isinstance(raw, dict) else {}
+    port = raw.get("port")
+    return {"enabled": raw.get("enabled") is True,
+            "key": raw["key"] if isinstance(raw.get("key"), str) and len(raw["key"]) >= 12 else None,
+            "port": port if isinstance(port, int) and 1024 <= port <= 65535 else SHARE_PORT}
+
+
+def write_share(cfg: dict, path: str | None = None) -> None:
+    with open(path or SHARE_FILE, "a+", encoding="utf-8") as f:  # in place (EFS-broken AppData)
+        f.seek(0)
+        f.truncate()
+        f.write(json.dumps(cfg, indent=2) + "\n")
+
+
+def lan_addresses() -> list[tuple[str, str]]:
+    """(address, what it is) a phone could use: the main network address (the one with the
+    default route), then Tailscale's 100.x if it runs. Virtual adapters (WSL, VirtualBox,
+    Hyper-V) and disconnected ones are left out: a phone can't reach them."""
+    import ipaddress
+    out = []
+    main = local_ip().split(" ")[0]
+    if main and not main.startswith(("127.", "169.254.")):
+        out.append((main, "your network"))
+    up = {n for n, st in psutil.net_if_stats().items() if st.isup}
+    for name, addrs in psutil.net_if_addrs().items():
+        for a in addrs:
+            if (a.family == socket.AF_INET and name in up and a.address != main
+                    and ipaddress.ip_address(a.address) in ipaddress.ip_network("100.64.0.0/10")):
+                out.append((a.address, "Tailscale: away from home too, with Tailscale on the phone"))
+    return out
+
+
+def share_url(ip: str, cfg: dict) -> str:
+    return f"http://{ip}:{cfg['port']}/?k={cfg['key']}"
+
+
+def share_page(key: str) -> bytes:
+    """index.html for a phone: the key instead of token.js, the API on this server, home-screen
+    tags (manifest, fullscreen, theme color)."""
+    with open(PAGE_FILE, encoding="utf-8") as f:
+        html = f.read()
+    head = (f'<link rel="manifest" href="manifest.webmanifest?k={key}">'
+            '<meta name="mobile-web-app-capable" content="yes">'
+            '<meta name="apple-mobile-web-app-capable" content="yes">'
+            '<meta name="apple-mobile-web-app-status-bar-style" content="black">'
+            '<link rel="apple-touch-icon" href="icon-192.png">'
+            '<meta name="referrer" content="no-referrer">')
+    html = html.replace("</head>", head + "</head>", 1)
+    html = html.replace('<script src="token.js"></script>',
+                        f'<script>window.TERMWALL_TOKEN = {json.dumps(key)}; window.TERMWALL_API = "stats";'
+                        ' window.TERMWALL_SHARE = true;</script>', 1)
+    return html.encode("utf-8")
+
+
+def share_manifest(key: str, theme: dict | None) -> bytes:
+    bg = (theme or {}).get("bg", "#171717")
+    return json.dumps({
+        "name": "termwall", "short_name": "termwall", "start_url": f"/?k={key}", "scope": "/",
+        "display": "fullscreen", "orientation": "any", "background_color": bg, "theme_color": bg,
+        "icons": [{"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+                  {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"}],
+    }).encode()
+
+
+def png(width: int, height: int, rows) -> bytes:
+    """A truecolor PNG from rows of (r, g, b) tuples. stdlib only."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\x00" + bytes(c for px in row for c in px) for row in rows)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+
+_icon_cache: dict = {}
+
+
+def share_icon(size: int, theme: dict | None) -> bytes:
+    """The home-screen icon: a prompt ">_" in the accent color on the background."""
+    theme = theme or THEMES["mint"]
+    key = (size, theme["bg"], theme["accent"])
+    if key in _icon_cache:
+        return _icon_cache[key]
+    hexrgb = lambda h: tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+    bg, fg = hexrgb(theme["bg"]), hexrgb(theme["accent"])
+    s = size / 100  # drawn on a 100x100 grid
+
+    def seg(px, py, ax, ay, bx, by):  # distance from a point to a segment
+        dx, dy = bx - ax, by - ay
+        t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+        return ((px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2) ** 0.5
+    rows = []
+    for y in range(size):
+        row = []
+        for x in range(size):
+            u, v = x / s, y / s
+            on = (min(seg(u, v, 24, 30, 46, 50), seg(u, v, 46, 50, 24, 70)) < 6.5
+                  or (52 <= u <= 78 and 63 <= v <= 72))
+            row.append(fg if on else bg)
+        rows.append(row)
+    _icon_cache[key] = png(size, size, rows)
+    return _icon_cache[key]
+
+
+# --- a QR code encoder (byte mode, error correction M, versions 1-10): enough for a link ---
+
+_QR_M = {  # version: (EC codewords per block, [data codewords of each block])
+    1: (10, [16]), 2: (16, [28]), 3: (26, [44]), 4: (18, [32, 32]), 5: (24, [43, 43]),
+    6: (16, [27] * 4), 7: (18, [31] * 4), 8: (22, [38, 38, 39, 39]), 9: (22, [36, 36, 36, 37, 37]),
+    10: (26, [43, 43, 43, 43, 44]),
+}
+_QR_ALIGN = {1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30], 6: [6, 34], 7: [6, 22, 38],
+             8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50]}
+
+
+def _gf_mul(x: int, y: int) -> int:
+    z = 0
+    for i in reversed(range(8)):
+        z = (z << 1) ^ ((z >> 7) * 0x11D)
+        z ^= ((y >> i) & 1) * x
+    return z
+
+
+def _rs_ec(data: list[int], degree: int) -> list[int]:
+    div = [0] * (degree - 1) + [1]
+    root = 1
+    for _ in range(degree):
+        for j in range(degree):
+            div[j] = _gf_mul(div[j], root)
+            if j + 1 < degree:
+                div[j] ^= div[j + 1]
+        root = _gf_mul(root, 2)
+    rem = [0] * degree
+    for b in data:
+        factor = b ^ rem.pop(0)
+        rem.append(0)
+        for i, c in enumerate(div):
+            rem[i] ^= _gf_mul(c, factor)
+    return rem
+
+
+def qr_matrix(text: str) -> list[list[bool]]:
+    """The modules of a QR code for text (True = dark), without the quiet zone."""
+    data = text.encode("utf-8")
+    for ver in range(1, 11):
+        ec_len, blocks = _QR_M[ver]
+        cap = sum(blocks)
+        cc_bits = 8 if ver < 10 else 16
+        if 4 + cc_bits + 8 * len(data) <= cap * 8:
+            break
+    else:
+        raise ValueError("too long for a QR code here")
+    bits = [0, 1, 0, 0] + [(len(data) >> i) & 1 for i in reversed(range(cc_bits))]
+    for b in data:
+        bits += [(b >> i) & 1 for i in reversed(range(8))]
+    bits += [0] * min(4, cap * 8 - len(bits))
+    bits += [0] * (-len(bits) % 8)
+    words = [int("".join(map(str, bits[i:i + 8])), 2) for i in range(0, len(bits), 8)]
+    pad = 0
+    while len(words) < cap:
+        words.append((0xEC, 0x11)[pad % 2])
+        pad += 1
+    split, at = [], 0
+    for n in blocks:
+        split.append(words[at:at + n])
+        at += n
+    ecs = [_rs_ec(b, ec_len) for b in split]
+    final = [b[i] for i in range(max(blocks)) for b in split if i < len(b)]
+    final += [e[i] for i in range(ec_len) for e in ecs]
+
+    size = ver * 4 + 17
+    mod = [[False] * size for _ in range(size)]
+    fn = [[False] * size for _ in range(size)]
+
+    def setf(x, y, dark):
+        mod[y][x] = dark
+        fn[y][x] = True
+    for i in range(size):
+        setf(6, i, i % 2 == 0)
+        setf(i, 6, i % 2 == 0)
+    for cx, cy in ((3, 3), (size - 4, 3), (3, size - 4)):
+        for dy in range(-4, 5):
+            for dx in range(-4, 5):
+                x, y = cx + dx, cy + dy
+                if 0 <= x < size and 0 <= y < size:
+                    setf(x, y, max(abs(dx), abs(dy)) not in (2, 4))
+    al = _QR_ALIGN[ver]
+    for i, ax in enumerate(al):
+        for j, ay in enumerate(al):
+            if (i, j) in ((0, 0), (0, len(al) - 1), (len(al) - 1, 0)):
+                continue
+            for dy in range(-2, 3):
+                for dx in range(-2, 3):
+                    setf(ax + dx, ay + dy, max(abs(dx), abs(dy)) != 1)
+
+    def draw_format(mask):
+        d = mask  # error correction M = 00
+        rem = d
+        for _ in range(10):
+            rem = (rem << 1) ^ ((rem >> 9) * 0x537)
+        fb = (d << 10 | rem) ^ 0x5412
+        bit = lambda i: (fb >> i) & 1 == 1
+        for i in range(6):
+            setf(8, i, bit(i))
+        setf(8, 7, bit(6))
+        setf(8, 8, bit(7))
+        setf(7, 8, bit(8))
+        for i in range(9, 15):
+            setf(14 - i, 8, bit(i))
+        for i in range(8):
+            setf(size - 1 - i, 8, bit(i))
+        for i in range(8, 15):
+            setf(8, size - 15 + i, bit(i))
+        setf(8, size - 8, True)
+    draw_format(0)
+    if ver >= 7:
+        rem = ver
+        for _ in range(12):
+            rem = (rem << 1) ^ ((rem >> 11) * 0x1F25)
+        vb = ver << 12 | rem
+        for i in range(18):
+            b = (vb >> i) & 1 == 1
+            a, c = size - 11 + i % 3, i // 3
+            setf(a, c, b)
+            setf(c, a, b)
+
+    i, right = 0, size - 1
+    nbits = len(final) * 8
+    while right >= 1:
+        if right == 6:
+            right = 5
+        for vert in range(size):
+            for j in range(2):
+                x = right - j
+                y = size - 1 - vert if ((right + 1) & 2) == 0 else vert
+                if not fn[y][x] and i < nbits:
+                    mod[y][x] = (final[i >> 3] >> (7 - (i & 7))) & 1 == 1
+                    i += 1
+        right -= 2
+
+    masks = [lambda x, y: (x + y) % 2 == 0, lambda x, y: y % 2 == 0, lambda x, y: x % 3 == 0,
+             lambda x, y: (x + y) % 3 == 0, lambda x, y: (x // 3 + y // 2) % 2 == 0,
+             lambda x, y: x * y % 2 + x * y % 3 == 0, lambda x, y: (x * y % 2 + x * y % 3) % 2 == 0,
+             lambda x, y: ((x + y) % 2 + x * y % 3) % 2 == 0]
+
+    def apply(m):
+        for y in range(size):
+            for x in range(size):
+                if not fn[y][x] and masks[m](x, y):
+                    mod[y][x] = not mod[y][x]
+
+    def penalty():
+        p = 0
+        lines = [row for row in mod] + [[mod[y][x] for y in range(size)] for x in range(size)]
+        for line in lines:
+            run, prev = 0, None
+            for v in line:
+                run = run + 1 if v == prev else 1
+                prev = v
+                if run == 5:
+                    p += 3
+                elif run > 5:
+                    p += 1
+            s = "".join("1" if v else "0" for v in line)
+            p += 40 * (s.count("10111010000") + s.count("00001011101"))
+        for y in range(size - 1):
+            for x in range(size - 1):
+                if mod[y][x] == mod[y][x + 1] == mod[y + 1][x] == mod[y + 1][x + 1]:
+                    p += 3
+        dark = sum(v for row in mod for v in row)
+        p += 10 * (abs(dark * 20 - size * size * 10) // (size * size))
+        return p
+    best = None
+    for m in range(8):
+        apply(m)
+        draw_format(m)
+        score = penalty()
+        if best is None or score < best[0]:
+            best = (score, m)
+        apply(m)  # undo (the mask is its own inverse)
+    apply(best[1])
+    draw_format(best[1])
+    return mod
+
+
+def qr_text(matrix: list[list[bool]]) -> str:
+    """The QR code for a terminal: two rows per line with half blocks, dark on light, with a
+    quiet zone. Black and white are forced so a dark terminal theme can't invert it."""
+    q = 2
+    size = len(matrix)
+    get = lambda x, y: 0 <= x < size and 0 <= y < size and matrix[y][x]
+    lines = []
+    for y in range(-q, size + q, 2):
+        row = "".join({(False, False): " ", (True, False): "▀", (False, True): "▄", (True, True): "█"}
+                      [(get(x, y), get(x, y + 1))] for x in range(-q, size + q))
+        lines.append("\x1b[30;107m" + row + "\x1b[0m")
+    return "\n".join(lines)
+
+
+def make_share_handler(sampler: Sampler, key: str):
+    fails: dict = {}  # ip -> [count, first failure time]: a wrong key 20 times in 10 min = blocked
+
+    class ShareHandler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def send(self, code: int, body: bytes = b"", ctype: str = "text/plain; charset=utf-8",
+                 cache: str = "no-store") -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", cache)
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            import ipaddress
+            from urllib.parse import parse_qs, urlsplit
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+            try:
+                ipaddress.ip_address(host)  # an IP, never a name: no DNS rebinding
+            except ValueError:
+                return self.send(403, b"open termwall by the address termwall share shows\n")
+            url = urlsplit(self.path)
+            path = url.path.lstrip("/")
+            if path == "ping":
+                return self.send(200, b"termwall")
+            if path in SHARE_STATIC or (path.startswith("fonts/") and path.endswith(".woff2")
+                                        and "/" not in path[6:] and ".." not in path):
+                try:
+                    with open(os.path.join(os.path.dirname(PAGE_FILE), *path.split("/")), "rb") as f:
+                        body = f.read()
+                except OSError:
+                    return self.send(404)
+                return self.send(200, body, SHARE_STATIC.get(path, "font/woff2"), "public, max-age=3600")
+            ip = self.client_address[0]
+            f = fails.get(ip)
+            if f and f[0] >= 20 and time.time() - f[1] < 600:
+                return self.send(429, b"too many wrong keys, try again in 10 minutes\n")
+            q = parse_qs(url.query)
+            sent = (q.get("k") or q.get("t") or [""])[0]
+            if not hmac.compare_digest(sent.encode(), key.encode()):
+                if not f or time.time() - f[1] >= 600:
+                    fails[ip] = [0, time.time()]
+                fails[ip][0] += 1
+                return self.send(403, b"this link's key is wrong or old: termwall share shows the current one\n")
+            st = {**read_style(), "private": True}
+            theme = resolve_palette(st)
+            if path == "":
+                return self.send(200, share_page(key), "text/html; charset=utf-8")
+            if path == "manifest.webmanifest":
+                return self.send(200, share_manifest(key, theme), "application/manifest+json")
+            if path in ("icon-192.png", "icon-512.png"):
+                return self.send(200, share_icon(int(path[5:8]), theme), "image/png", "public, max-age=3600")
+            if path in ("stats", "theme"):
+                body = {"theme": theme, "style": st, "page": page_version()}
+                if path == "stats":  # nothing that names you or your network
+                    body = {**sampler.get(), "user": "user", "host": "computer", "local_ip": "hidden", **body}
+                return self.send(200, json.dumps(body).encode(), "application/json")
+            return self.send(404)
+
+    return ShareHandler
+
+
+def run_share(sampler: Sampler) -> None:
+    """Watch share.json; start or stop the LAN server when it changes (termwall share on/off
+    works without restarting termwall)."""
+    httpd, running = None, None
+    while True:
+        cfg = read_share()
+        want = (cfg["port"], cfg["key"]) if cfg["enabled"] and cfg["key"] else None
+        if want != running:
+            if httpd:
+                httpd.shutdown()
+                httpd.server_close()
+                httpd = None
+            if want:
+                try:
+                    httpd = ExclusiveServer(("0.0.0.0", want[0]), make_share_handler(sampler, want[1]))
+                    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+                    print(f"share: on, port {want[0]}")
+                except OSError as e:
+                    print(f"share: port {want[0]} can't be used ({e})")
+            running = want
+        time.sleep(2)
+
+
+def cmd_share(args: list[str]) -> int:
+    cfg = read_share()
+    sub = args[0] if args else "on"
+    if sub == "off":
+        write_share({**cfg, "enabled": False})
+        print("share: off (the LAN server stops within a few seconds)")
+        return 0
+    if sub not in ("on", "new-key", "show"):
+        print("termwall share [on | off | new-key | show]")
+        return 2
+    if sub == "new-key" or not cfg["key"]:
+        cfg["key"] = secrets.token_urlsafe(12)
+        if sub == "new-key":
+            print("new key: links and home-screen icons made before stop working")
+    if sub != "show":
+        cfg["enabled"] = True
+    write_share(cfg)
+    if not cfg["enabled"]:
+        print("share is off: termwall share on")
+        return 1
+    import urllib.request
+    up = False
+    for _ in range(10):  # the running server picks share.json up within 2 s
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{cfg['port']}/ping", timeout=1) as r:
+                up = r.read() == b"termwall"
+                break
+        except OSError:
+            time.sleep(0.5)
+    ips = lan_addresses()
+    if not ips:
+        print("no network address found")
+        return 1
+    url = share_url(ips[0][0], cfg)
+    print(qr_text(qr_matrix(url)))
+    print()
+    for ip, what in ips:
+        print(f"  {share_url(ip, cfg)}   ({what})")
+    print("\nScan it with the phone (same Wi-Fi), then the browser menu: Add to Home screen.")
+    print("Only stats and the look go out: no user name, computer name or IP.")
+    if not up:
+        print("\nnote: termwall's server isn't answering on that port. Is it running (termwall)?")
+    print("If the phone can't open it: Windows Firewall has to allow Python on private networks"
+          " (it asks once; or allow it in Windows Security > Firewall > Allow an app).")
+    return 0
+
+
 def serve() -> None:
     sampler = Sampler()
     try:  # bind before anything else: a second copy must not rewrite token.js
@@ -976,6 +1429,7 @@ def serve() -> None:
         print(f"note: could not write {STYLE_FILE}: {e}")
     sampler.sample()
     threading.Thread(target=sampler.run, daemon=True).start()
+    threading.Thread(target=run_share, args=(sampler,), daemon=True).start()  # termwall share
     print(f"termwall's server on http://{HOST}:{PORT} - Ctrl+C stops it")
     try:
         httpd.serve_forever()
@@ -1171,6 +1625,60 @@ def selftest() -> int:
         else:
             os.environ["LOCALAPPDATA"] = saved
     check(steam_libraries(vdf) == ["C:\\Program Files (x86)\\Steam", "D:\\SteamLibrary"], "Steam libraries from libraryfolders.vdf")
+    # share: the QR code's structure, and the LAN server's rules
+    m = qr_matrix("http://192.168.1.20:9012/?k=" + "A" * 16)
+    check(len(m) == 33 and all(len(r) == 33 for r in m), "a share link fits a version 4 QR code")
+    check([m[0][x] for x in range(7)] == [True] * 7 and [m[3][x] for x in range(7)] == [True, False, True, True, True, False, True],
+          "QR finder pattern")
+    check([m[6][x] for x in range(8, 25)] == [x % 2 == 0 for x in range(8, 25)], "QR timing pattern")
+    check(m[4 * 4 + 9][8] is True, "QR dark module")
+    check(len(qr_matrix("x" * 200)) == 57, "a long text takes version 10")
+    try:
+        qr_matrix("x" * 400)
+        check(False, "too long for a QR code is refused")
+    except ValueError:
+        check(True, "too long for a QR code is refused")
+    check(share_icon(192, None)[:8] == b"\x89PNG\r\n\x1a\n", "the home-screen icon is a PNG")
+
+    class FakeSampler:
+        def get(self):
+            return {"user": "panto", "host": "KOMPU", "local_ip": "192.168.1.20 (Ethernet)", "cpu": 12.0, "time": 1}
+    import urllib.error
+    import urllib.request
+    key = "k" * 16
+    srv = ExclusiveServer(("127.0.0.1", 0), make_share_handler(FakeSampler(), key))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+
+    def get(path, host=None):
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers={"Host": host or f"127.0.0.1:{port}"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, b""
+    code, body = get(f"/stats?t={key}")
+    st = json.loads(body) if code == 200 else {}
+    check(code == 200 and st.get("cpu") == 12.0 and st.get("style", {}).get("private") is True, "share serves stats, private on")
+    check("panto" not in body.decode() and "KOMPU" not in body.decode() and "192.168.1.20" not in body.decode(),
+          "share never sends the user, computer name or IP")
+    check(get("/stats?t=wrong")[0] == 403, "share: a wrong key gets 403")
+    check(get(f"/stats?t={key}", host=f"evil.example:{port}")[0] == 403, "share: a host name (DNS rebinding) gets 403")
+    code, body = get(f"/?k={key}")
+    check(code == 200 and key.encode() in body and b'<script src="token.js">' not in body and b"manifest.webmanifest" in body,
+          "share serves the page with its key and a manifest")
+    check(get("/logos.js")[0] == 200 and get("/termwall_api.py")[0] in (403, 404) and get("/fonts/../share.json")[0] in (403, 404),
+          "share: static files only from the list, no source or settings")
+    for _ in range(25):
+        get("/stats?t=nope")
+    check(get(f"/stats?t={key}")[0] == 429, "share: 20 wrong keys block that address for a while")
+    srv.shutdown()
+    srv.server_close()
+    with tempfile.TemporaryDirectory() as td:
+        sf = os.path.join(td, "share.json")
+        check(read_share(sf) == {"enabled": False, "key": None, "port": SHARE_PORT}, "share is off without share.json")
+        write_share({"enabled": True, "key": "short", "port": 80}, sf)
+        check(read_share(sf) == {"enabled": True, "key": None, "port": SHARE_PORT}, "share.json: a short key and a bad port are refused")
     print(f"selftest: {ok}/{ok + fail} OK")
     return 0 if fail == 0 else 1
 
@@ -1182,6 +1690,8 @@ USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall
                                  comments ($EDITOR, else the .toml app, else VS Code, else Notepad)
   termwall check                 which lines of termwall.toml are wrong, and what livery overrides
   termwall reset                 every setting back to its default
+  termwall share [off|new-key]   the wallpaper on a phone: a QR code to scan, a read-only server
+                                 on your network (no user name, computer name or IP go out)
   (the other options work without the dashes too: termwall themes, termwall version)
   termwall --style               every setting, its value and its choices
   termwall --style KEY VALUE     change one (KEY default: remove it, --style reset: all)
@@ -1250,7 +1760,8 @@ def theme_overrides(style_path: str | None = None, theme_path: str | None = None
 
 # termwall config / check / reset ... without the dashes
 WORDS = {"config": "--config", "check": "--check", "style": "--style", "theme": "--theme", "themes": "--themes",
-         "version": "--version", "stop": "--stop", "once": "--once", "selftest": "--selftest"}
+         "version": "--version", "stop": "--stop", "once": "--once", "selftest": "--selftest",
+         "share": "--share"}
 
 
 if __name__ == "__main__":
@@ -1268,7 +1779,7 @@ if __name__ == "__main__":
         sys.exit(0)
     unknown = [a for a in sys.argv[1:2] if a not in (
         "--selftest", "--version", "--link-we", "--unlink-we", "--link-lively", "--unlink-lively", "--stop",
-        "--themes", "--theme", "--style", "--once", "--config", "--check")]
+        "--themes", "--theme", "--style", "--once", "--config", "--check", "--share")]
     if unknown:
         sys.exit(f"unknown option {unknown[0]}\n\n{USAGE}")
     if "--selftest" in sys.argv:
@@ -1291,6 +1802,8 @@ if __name__ == "__main__":
     if "--stop" in sys.argv:
         print(f"stopped {stop_running()}")
         sys.exit(0)
+    if "--share" in sys.argv:
+        sys.exit(cmd_share(sys.argv[sys.argv.index("--share") + 1:]))
     if "--config" in sys.argv:
         print(f"opening {open_config()}")
         print("save it and the wallpaper follows within a second; termwall check if something doesn't change")

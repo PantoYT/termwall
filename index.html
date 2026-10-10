@@ -312,7 +312,8 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
 <script>
 // token.js is written by termwall_api.py at start; without the token the API answers 403.
 const TOKEN = encodeURIComponent(window.TERMWALL_TOKEN || "");
-const API = "http://127.0.0.1:9002/stats";
+const API = window.TERMWALL_API || "http://127.0.0.1:9002/stats";  // "stats" when served by termwall share
+const SHARE = window.TERMWALL_SHARE === true;
 function withToken(url){ return url + "?t=" + TOKEN; }
 // API restarted → new token → 403. Reload (re-reads token.js), at most once per 10 s.
 function onForbidden(){
@@ -331,7 +332,11 @@ function put(part, html){ document.querySelectorAll(`[data-p="${part}"]`).forEac
 // larger, so everything on it grows or shrinks.
 function stageSize(){
   const sc = Number(style.scale) || 1;
-  const [w, h] = currentLayout() === "portrait" ? [1080, 1920] : [1920, 1080];
+  let [w, h] = currentLayout() === "portrait" ? [1080, 1920] : [1920, 1080];
+  if (SHARE) {  // a phone fills its whole screen: the design area takes the screen's proportions
+    const r = innerHeight / innerWidth;
+    if (h > w) h = Math.max(1440, Math.round(w * r)); else w = Math.max(1440, Math.round(h / r));
+  }
   return [Math.round(w / sc), Math.round(h / sc)];
 }
 function fit(){
@@ -340,7 +345,12 @@ function fit(){
   const s = Math.min(innerWidth / w, innerHeight / h);
   stage.style.transform = `translate(${(innerWidth - w * s) / 2}px, ${(innerHeight - h * s) / 2}px) scale(${s})`;
 }
-addEventListener("resize", fit);
+addEventListener("resize", () => { showLayout(); fit(); if (SHARE && last) render(last); });
+if (SHARE) {  // a tap goes fullscreen; the screen stays on where the browser allows it (HTTPS only)
+  addEventListener("click", () => { document.documentElement.requestFullscreen?.().catch(() => {}); });
+  const wake = () => navigator.wakeLock?.request("screen").catch(() => {});
+  wake(); document.addEventListener("visibilitychange", () => { if (!document.hidden) wake(); });
+}
 
 // ── the look: layout, clock, bars (from termwall.json / theme.json through the API) ──
 const LAYOUTS = ["fetch", "board", "minimal", "htop", "portrait"];
@@ -378,7 +388,9 @@ function applyStyle(st){
   if (last) render(last);
 }
 function currentLayout(){
-  const base = Math.max(0, LAYOUTS.indexOf(style.layout));
+  // on a phone the screen decides: upright = portrait, sideways = the chosen layout
+  if (SHARE && innerHeight > innerWidth) return "portrait";
+  const base = Math.max(0, LAYOUTS.indexOf(SHARE && style.layout === "portrait" ? "fetch" : style.layout));
   if (!style.rotate) return LAYOUTS[base];
   return LAYOUTS[(base + Math.floor(Date.now() / 60000 / style.rotate)) % LAYOUTS.length];
 }
@@ -583,7 +595,7 @@ async function poll(){
     if (s && s.time) {
       if (checkPage(s)) return;
       ownTheme = distroTheme(s); applyTheme(s.theme); applyStyle(s.style); render(s); failures = 0;
-      put("status", `<span class="ok">●</span> termwall-api · 127.0.0.1:9002 · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`); }
+      put("status", `<span class="ok">●</span> ${SHARE ? "termwall share" : "termwall-api · 127.0.0.1:9002"} · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`); }
   } catch (e) {
     failures++;
     put("status", `<span class="bad">●</span> api offline · run <span class="g">python termwall_api.py</span>` + (failures > 1 ? ` <span class="d">(${failures})</span>` : ""));
@@ -652,7 +664,7 @@ function checkPage(s){
 // Palette and look checked 4×/s through the tiny /theme endpoint — stats stay at 1/s.
 async function pollTheme(){
   try {
-    const r = await fetch(withToken(API.replace("/stats", "/theme")), {cache: "no-store"});
+    const r = await fetch(withToken(API.replace(/stats$/, "theme")), {cache: "no-store"});
     if (r.status === 403) { onForbidden(); return; }
     const s = await r.json();
     if (!checkPage(s)) { applyTheme(s.theme); applyStyle(s.style); }

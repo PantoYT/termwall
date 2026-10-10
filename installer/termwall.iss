@@ -59,6 +59,7 @@ Type: files; Name: "{app}\theme.json"
 Type: files; Name: "{app}\termwall.json"
 Type: files; Name: "{app}\termwall.json.old"
 Type: files; Name: "{app}\termwall.toml"
+Type: files; Name: "{app}\share.json"
 Type: filesandordirs; Name: "{app}\__pycache__"
 
 [Code]

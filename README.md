@@ -118,6 +118,33 @@ can have its own look.
 `TERMWALL_THEME` and `TERMWALL_STYLE` (environment variables) point the server at other
 files. The port, `127.0.0.1:9002`, is fixed.
 
+## On a phone
+
+```
+termwall share
+```
+
+prints a QR code and a link. Scan it with a phone on the same Wi-Fi, then use the browser's
+menu: **Add to Home screen**. From then on the icon opens termwall full screen whenever the PC
+runs: upright the phone shows the portrait layout, sideways your usual one, in the same colors
+and effects. A tap goes full screen.
+
+- It's a second, read-only server on your network (port 9012), started and stopped by
+  `termwall share` / `termwall share off` while termwall runs; it stays on across restarts
+  until you turn it off.
+- The link carries a random key (in `share.json`). `termwall share new-key` replaces it; links
+  and home-screen icons made before stop working. 20 wrong keys from one address block it for
+  10 minutes.
+- Your user name, computer name and IP never go out on it: private mode is forced, and the
+  server removes them before sending, not only the page.
+- The Host header has to be an IP address, so a web page can't reach it through a DNS name.
+- With [Tailscale](https://tailscale.com) on the PC and the phone, the 100.x link it prints
+  works away from home too.
+- Windows Firewall asks once whether Python may listen on private networks: allow it, or the
+  phone can't connect (Windows Security > Firewall & network protection > Allow an app).
+- Plain HTTP on a home network means the browser won't keep the screen on by itself: set the
+  phone's screen timeout, or Android's "Stay awake" (developer options) while it charges.
+
 ## Troubleshooting
 
 | problem | what to check |
