@@ -71,7 +71,7 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 
 | setting | values | default |
 |---|---|---|
-| `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side) | `fetch` |
+| `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side), `phone` (big gauges for a phone; `termwall share` picks it when the phone is upright) | `fetch` |
 | `theme` | `auto`, `mint`, `catppuccin`, `gruvbox`, `nord`, `dracula`, `tokyo-night`, `rose-pine`, `everforest`, `kanagawa`, `solarized`, `one-dark`, `monokai`, `amber`, `phosphor` (`termwall --themes`, or `termwall --theme nord`) | `auto`: your distro's colors on Linux, mint on Windows |
 | `colors` | your own six colors: uncomment the `colors = { bg = "#…", … }` line in `termwall.toml` | |
 | `bars` | `blocks`, `shade`, `dots`, `line` | `blocks` |
@@ -126,7 +126,7 @@ termwall share
 
 prints a QR code and a link. Scan it with a phone on the same Wi-Fi, then use the browser's
 menu: **Add to Home screen**. From then on the icon opens termwall full screen whenever the PC
-runs: upright the phone shows the portrait layout, sideways your usual one, in the same colors
+runs: upright the phone shows the phone layout (big gauges, network, disks, the top five), sideways your usual one, in the same colors
 and effects. A tap goes full screen.
 
 - It's a second, read-only server on your network (port 9012), started and stopped by
