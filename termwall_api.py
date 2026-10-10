@@ -370,8 +370,8 @@ def render_config(cur: dict) -> str:
             if k in ("hide", "effects"):
                 out.append(f"# choices: {', '.join(SECTIONS if k == 'hide' else EFFECTS)}")
             elif k == "theme":
-                out.append("# choices: auto, " + ", ".join(list(THEMES)[:7]) + ",")
-                out.append("#          " + ", ".join(list(THEMES)[7:]) + "   default: \"auto\"")
+                out.append("# choices: auto, logo, distro, " + ", ".join(list(THEMES)[:5]) + ",")
+                out.append("#          " + ", ".join(list(THEMES)[5:]) + "   default: \"auto\"")
             elif k != "prompt":
                 choices = "true | false" if check is _bool else check.help
                 out.append(f"# choices: {choices}   default: {_toml_value(CONFIG_DEFAULTS[k])}")
