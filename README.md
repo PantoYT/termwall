@@ -50,6 +50,12 @@ and run it. No admin rights, nothing else to install.
 
 A winget package is in review; once it's accepted: `winget install PantoYT.termwall`.
 
+**Updating**: `termwall update` looks up the latest release on GitHub, downloads the installer,
+checks it against the release's SHA-256 and runs it in the background; your `termwall.toml`
+stays. `termwall update --check` only tells you whether there is one, and `termwall version`
+mentions a newer release too. termwall never checks on its own. Running a newer installer by
+hand does the same thing; a git clone updates with `git pull`.
+
 The installer also puts a `termwall` command on your PATH (in new terminals):
 `termwall config` (opens the settings file), `termwall --style layout board`, `termwall --version`.
 

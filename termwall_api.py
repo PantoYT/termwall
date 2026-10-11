@@ -1584,6 +1584,105 @@ def cmd_share(args: list[str]) -> int:
     return 0
 
 
+# ─── update: only when asked, from GitHub's latest release ───────────────────────────────
+
+RELEASES_API = "https://api.github.com/repos/PantoYT/termwall/releases/latest"
+RELEASES_PAGE = "https://github.com/PantoYT/termwall/releases/latest"
+
+
+def version_tuple(v: str) -> tuple:
+    import re
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3]) or (0,)
+
+
+def pick_installer(release: dict) -> dict | None:
+    """The release's Windows installer: name, url, size and sha256 (when GitHub gives one)."""
+    for a in release.get("assets") or []:
+        name = a.get("name", "")
+        if name.startswith("termwall-setup-") and name.endswith(".exe"):
+            digest = a.get("digest") or ""
+            return {"name": name, "url": a.get("browser_download_url"), "size": a.get("size"),
+                    "sha256": digest[7:] if digest.startswith("sha256:") else None}
+    return None
+
+
+def latest_release(timeout: float = 10) -> dict:
+    import urllib.request
+    req = urllib.request.Request(RELEASES_API, headers={"Accept": "application/vnd.github+json",
+                                                        "User-Agent": f"termwall/{__version__}"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read())
+
+
+def newer_release(timeout: float = 10) -> dict | None:
+    """The latest release if it's newer than this copy, else None."""
+    rel = latest_release(timeout)
+    return rel if version_tuple(rel.get("tag_name", "")) > version_tuple(__version__) else None
+
+
+def install_kind() -> str:
+    """installer (its own Python next to the script), git (a clone) or copy (anything else)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if os.path.isdir(os.path.join(here, ".git")):
+        return "git"
+    if os.path.exists(os.path.join(here, "python", "python.exe")):
+        return "installer"
+    return "copy"
+
+
+def cmd_update(args: list[str]) -> int:
+    """termwall update [--check]: the latest release, downloaded, checked and installed."""
+    try:
+        rel = newer_release()
+    except OSError as e:
+        print(f"can't reach GitHub: {e}")
+        return 1
+    if not rel:
+        print(f"termwall {__version__} is the latest")
+        return 0
+    tag = rel.get("tag_name", "?").lstrip("v")
+    print(f"termwall {tag} is out (this is {__version__}): {rel.get('html_url') or RELEASES_PAGE}")
+    if "--check" in args:
+        return 0
+    kind = install_kind()
+    if kind == "git":
+        print("this is a git clone: git pull, then restart the server (termwall stop, then termwall)")
+        return 0
+    asset = pick_installer(rel)
+    if os.name != "nt" or kind != "installer" or not asset:
+        print(f"download it from {RELEASES_PAGE}")
+        return 0
+    import hashlib
+    import tempfile
+    import urllib.request
+    dest = os.path.join(tempfile.gettempdir(), asset["name"])
+    print(f"downloading {asset['name']} ({(asset['size'] or 0) / 1e6:.1f} MB)")
+    h = hashlib.sha256()
+    req = urllib.request.Request(asset["url"], headers={"User-Agent": f"termwall/{__version__}"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+            while chunk := r.read(1 << 16):
+                f.write(chunk)
+                h.update(chunk)
+    except OSError as e:
+        print(f"download failed: {e}")
+        return 1
+    if asset["size"] and os.path.getsize(dest) != asset["size"]:
+        print("download incomplete; nothing installed")
+        return 1
+    if asset["sha256"] and h.hexdigest() != asset["sha256"]:
+        os.remove(dest)
+        print("the download doesn't match the release's checksum; nothing installed")
+        return 1
+    # The installer replaces the Python this command runs on, so it runs on its own after we exit;
+    # it stops the server, keeps termwall.toml and starts the new server when it's done.
+    subprocess.Popen([dest, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+                     creationflags=0x00000008 | 0x00000200, close_fds=True)  # DETACHED | NEW_PROCESS_GROUP
+    print(f"installing {tag} in the background; the wallpaper comes back in about half a minute."
+          " Your settings stay.")
+    return 0
+
+
 def serve() -> None:
     sampler = Sampler()
     try:  # bind before anything else: a second copy must not rewrite token.js
@@ -1832,6 +1931,12 @@ def selftest() -> int:
               "[screen.N] tables survive a --style write")
         check(any("screen.3.layout" in x or "layout" in x for x in check_config(sp)), "check names a bad screen value")
     check(screen_of("/stats?t=x&screen=2") == "2" and screen_of("/stats?screen=../x") is None, "?screen= read safely")
+    check(version_tuple("v1.10.0") > version_tuple("1.9.3") and version_tuple("1.5.0") == (1, 5, 0),
+          "versions compare as numbers")
+    a = pick_installer({"assets": [{"name": "notes.txt"}, {"name": "termwall-setup-9.9.9.exe", "size": 5,
+                        "browser_download_url": "https://x/t.exe", "digest": "sha256:" + "ab" * 32}]})
+    check(a and a["name"] == "termwall-setup-9.9.9.exe" and a["sha256"] == "ab" * 32, "update: the installer asset and its sha256")
+    check(pick_installer({"assets": []}) is None, "update: no installer in a release -> none")
     ids = distro_ids()
     check("arch" in ids and "nixos" in ids and len(ids) >= 20, "the distro list comes from logos.js")
     check(all(f"#   {x}" in render_config({}) or f", {x}" in render_config({}) for x in ("arch", "mx")),
@@ -1907,6 +2012,7 @@ USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall
                                  comments ($EDITOR, else the .toml app, else VS Code, else Notepad)
   termwall check                 which lines of termwall.toml are wrong, and what livery overrides
   termwall reset                 every setting back to its default
+  termwall update [--check]      install the latest release (asks GitHub only when you run it)
   termwall share [off|new-key]   the wallpaper on a phone: a QR code to scan, a read-only server
                                  on your network (no user name, computer name or IP go out)
   (the other options work without the dashes too: termwall themes, termwall version)
@@ -1978,7 +2084,7 @@ def theme_overrides(style_path: str | None = None, theme_path: str | None = None
 # termwall config / check / reset ... without the dashes
 WORDS = {"config": "--config", "check": "--check", "style": "--style", "theme": "--theme", "themes": "--themes",
          "version": "--version", "stop": "--stop", "once": "--once", "selftest": "--selftest",
-         "share": "--share"}
+         "share": "--share", "update": "--update"}
 
 
 if __name__ == "__main__":
@@ -1996,14 +2102,22 @@ if __name__ == "__main__":
         sys.exit(0)
     unknown = [a for a in sys.argv[1:2] if a not in (
         "--selftest", "--version", "--link-we", "--unlink-we", "--link-lively", "--unlink-lively", "--stop",
-        "--themes", "--theme", "--style", "--once", "--config", "--check", "--share")]
+        "--themes", "--theme", "--style", "--once", "--config", "--check", "--share", "--update")]
     if unknown:
         sys.exit(f"unknown option {unknown[0]}\n\n{USAGE}")
     if "--selftest" in sys.argv:
         sys.exit(selftest())
     if "--version" in sys.argv:
         print(f"termwall {__version__}")
+        try:  # asked for, so a quick look is fine; offline is not an error
+            rel = newer_release(timeout=3)
+            if rel:
+                print(f"{rel.get('tag_name', '').lstrip('v')} is out: termwall update")
+        except (OSError, ValueError):
+            pass
         sys.exit(0)
+    if "--update" in sys.argv:
+        sys.exit(cmd_update(sys.argv[sys.argv.index("--update") + 1:]))
     if "--link-we" in sys.argv:
         print(link_we())
         sys.exit(0)
