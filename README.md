@@ -2,8 +2,9 @@
 
 A live system-stats wallpaper in the style of [fastfetch](https://github.com/fastfetch-cli/fastfetch):
 system info, per-core CPU, CPU and GPU history, memory, disks, network and top processes,
-refreshed every second. Five layouts, fourteen built-in themes, your distro's logo and colors
-on Linux, and a palette that can follow your wallpaper.
+refreshed every second. Seven layouts, fourteen built-in themes, any distro's logo (or your own
+picture or GIF) with its colors, CRT effects, a different look on each monitor, one commented
+settings file, and a palette that can follow your wallpaper.
 
 ![termwall on Windows and twelve Linux distros](docs/distros.gif)
 
