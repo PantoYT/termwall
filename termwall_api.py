@@ -456,6 +456,7 @@ def write_style(cur: dict, path: str) -> None:
         f.seek(0)
         f.truncate()
         f.write(text)
+    _cfg_cache.pop(path, None)  # two writes in one timestamp tick must not read the old one back
 
 
 _cfg_cache: dict = {}  # path -> (mtime, parsed dict, error or None)
@@ -469,7 +470,8 @@ def load_config(path: str) -> tuple[dict | None, str | None]:
         raw = _json_file(path)
         return (raw if isinstance(raw, dict) else None), None
     try:
-        mtime = os.stat(path).st_mtime_ns
+        st = os.stat(path)
+        mtime = (st.st_mtime_ns, st.st_size)  # the size too: a coarse clock can repeat a timestamp
     except OSError:
         return None, None
     hit = _cfg_cache.get(path)
