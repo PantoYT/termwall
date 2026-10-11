@@ -120,6 +120,22 @@ can have its own look.
 `TERMWALL_THEME` and `TERMWALL_STYLE` (environment variables) point the server at other
 files. The port, `127.0.0.1:9002`, is fixed.
 
+## Several monitors
+
+Each monitor can look different (Wallpaper Engine): put termwall on every monitor ("one
+wallpaper per display"), click it on a monitor and set its **termwall screen** property to a
+number. Then, at the end of `termwall.toml`:
+
+```toml
+[screen.2]
+layout = "logo"
+effects = ["crt"]
+```
+
+A `[screen.N]` table changes only the settings it names, for that monitor; the rest come from
+the main settings. It also wins over livery's per-pack look. Lively Wallpaper has no such
+property yet: there every monitor shows screen 1.
+
 ## On a phone (experimental)
 
 This works, but it's a first version: pull requests welcome. Known gaps:

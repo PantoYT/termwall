@@ -370,10 +370,11 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
 const TOKEN = encodeURIComponent(window.TERMWALL_TOKEN || "");
 const API = window.TERMWALL_API || "http://127.0.0.1:9002/stats";  // "stats" when served by termwall share
 const SHARE = window.TERMWALL_SHARE === true;
-// Wallpaper Engine: the "termwall screen" property (project.json), set per monitor in WE
-let SCREEN = null;
-window.wallpaperPropertyListener = {applyUserProperties(p){ if (p.screen) { SCREEN = String(p.screen.value); if (last) render(last); } }};
-function withToken(url){ return url + "?t=" + TOKEN; }
+// Wallpaper Engine: the "termwall screen" property (project.json), set per monitor in WE;
+// the server answers with that monitor's [screen.N] settings
+let SCREEN = /^\d{1,2}$/.test(new URLSearchParams(location.search).get("screen") || "") ? new URLSearchParams(location.search).get("screen") : null;
+window.wallpaperPropertyListener = {applyUserProperties(p){ if (p.screen) { SCREEN = String(p.screen.value); styleKey = ""; if (!DEMO) pollTheme(); } }};
+function withToken(url){ return url + "?t=" + TOKEN + (SCREEN ? "&screen=" + SCREEN : ""); }
 // API restarted → new token → 403. Reload (re-reads token.js), at most once per 10 s.
 function onForbidden(){
   let last = 0;

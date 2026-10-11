@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
@@ -183,7 +183,17 @@ def _json_file(path: str):
         return None
 
 
-def read_style(style_path: str | None = None, theme_path: str | None = None) -> dict:
+def screen_tables(own) -> dict:
+    """[screen.N] tables of termwall.toml: {"2": {...}}, each cleaned like the main settings."""
+    raw = own.get("screen") if isinstance(own, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {str(n): clean_style(t) for n, t in raw.items() if str(n).isdigit() and isinstance(t, dict)}
+
+
+def read_style(style_path: str | None = None, theme_path: str | None = None, screen: str | None = None) -> dict:
+    """defaults < termwall.toml < theme.json's "style" (livery, per pack) < [screen.N] for the
+    monitor asking (Wallpaper Engine's "termwall screen" property)."""
     style_path = style_path or STYLE_FILE
     theme_path = theme_path or THEME_FILE
     themed = _json_file(theme_path)
@@ -191,7 +201,14 @@ def read_style(style_path: str | None = None, theme_path: str | None = None) -> 
     if own is None and style_path.endswith(".toml") and not os.path.exists(style_path):
         own = _json_file(os.path.join(os.path.dirname(style_path), "termwall.json"))  # not carried over yet
     return {**STYLE_DEFAULTS, **clean_style(own),
-            **clean_style(themed.get("style") if isinstance(themed, dict) else None)}
+            **clean_style(themed.get("style") if isinstance(themed, dict) else None),
+            **(screen_tables(own).get(str(screen)) or {} if screen else {})}
+
+
+def screen_of(path_qs: str) -> str | None:
+    from urllib.parse import parse_qs, urlsplit
+    v = parse_qs(urlsplit(path_qs).query).get("screen", [""])[0]
+    return v if v.isdigit() and len(v) <= 2 else None
 
 
 def resolve_palette(style: dict, theme_path: str | None = None) -> dict | None:
@@ -379,8 +396,15 @@ def render_config(cur: dict) -> str:
            "# A value termwall doesn't accept is ignored (the default is used); termwall --check",
            "# tells you which line is wrong. Delete this file to get every default back.",
            "#",
-           "# If a switcher like livery writes theme.json, its colors (and its \"style\") win over",
-           "# what is set here. This file is rewritten by termwall --style, so keep notes elsewhere.",
+           "# With theme = \"auto\", a switcher like livery (theme.json) gives the colors; its per-pack",
+           "# look wins over this file. This file is rewritten by termwall --style, so keep notes",
+           "# elsewhere.",
+           "#",
+           "# Several monitors (Wallpaper Engine): give termwall on each monitor a number with its",
+           "# \"termwall screen\" property in WE, then a [screen.N] table at the end of this file",
+           "# changes any setting for that monitor only, e.g.",
+           "#   [screen.2]",
+           "#   layout = \"logo\"",
            ""]
     for k, check in STYLE_SPEC.items():
         for line in STYLE_DOCS[k].split("\n"):
@@ -405,7 +429,17 @@ def render_config(cur: dict) -> str:
                 out.append(f"# choices: {choices}   default: {_toml_value(CONFIG_DEFAULTS[k])}")
             out.append(f"{k} = {_toml_value(cur.get(k, CONFIG_DEFAULTS[k]))}")
         out.append("")
-    extra = {k: v for k, v in cur.items() if k not in STYLE_SPEC}
+    extra = {k: v for k, v in cur.items() if k not in STYLE_SPEC and k != "screen"}
+    tables = cur.get("screen") if isinstance(cur.get("screen"), dict) else {}
+    for n, t in sorted(tables.items(), key=lambda kv: str(kv[0])):
+        if isinstance(t, dict):
+            out.append(f"[screen.{n}]")
+            for k, v in t.items():
+                try:
+                    out.append(f"{k} = {_toml_value(v)}")
+                except TypeError:
+                    pass
+            out.append("")
     if extra:
         out.append("# from a newer termwall (kept as they were)")
         for k, v in extra.items():
@@ -500,7 +534,17 @@ def check_config(path: str | None = None) -> list[str]:
     if err:
         return [err]
     problems = []
-    for k, v in (raw or {}).items():
+    items = list((raw or {}).items())
+    screens = (raw or {}).get("screen")
+    if isinstance(screens, dict):
+        items = [(k, v) for k, v in items if k != "screen"]
+        for n, t in screens.items():
+            if not str(n).isdigit() or not isinstance(t, dict):
+                problems.append(f"screen.{n}: has to be [screen.NUMBER] with settings under it")
+                continue
+            items += [(f"screen.{n}.{k}", v) for k, v in t.items()]
+    for k, v in items:
+        k = k.split(".")[-1] if k.startswith("screen.") else k
         if k not in STYLE_SPEC:
             problems.append(f"{k}: unknown setting (ignored)")
         elif STYLE_SPEC[k](v) is None:
@@ -1045,11 +1089,11 @@ def make_handler(sampler: Sampler, token: str):
                     self.wfile.write(img[0])
                 return
             if path == "/stats":
-                st = read_style()
+                st = read_style(screen=screen_of(self.path))
                 body = json.dumps({**sampler.get(), "theme": resolve_palette(st), "style": st,
                                    "page": page_version(), **page_extras(st)}).encode()
             elif path == "/theme":  # tiny, polled often so palette switches land fast
-                st = read_style()
+                st = read_style(screen=screen_of(self.path))
                 body = json.dumps({"theme": resolve_palette(st), "style": st, "page": page_version()}).encode()
             else:
                 self.send_response(404)
@@ -1768,6 +1812,24 @@ def selftest() -> int:
     check(clean_style({"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"})
           == {"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"}
           and clean_style({"logo_width": 500, "logo_chars": "x"}) == {}, "logo image settings validated")
+    with tempfile.TemporaryDirectory() as td:
+        sp, tp = os.path.join(td, "termwall.toml"), os.path.join(td, "theme.json")
+        set_style("layout", "fetch", sp)
+        with open(sp, "a", encoding="utf-8") as f:
+            f.write('\n[screen.2]\nlayout = "logo"\neffects = ["crt"]\n\n[screen.3]\nlayout = "nope"\n')
+        check(read_style(sp, tp)["layout"] == "fetch" and read_style(sp, tp, "2")["layout"] == "logo"
+              and read_style(sp, tp, "2")["effects"] == ["crt"] and read_style(sp, tp, "3")["layout"] == "fetch",
+              "[screen.N] overrides only that monitor, bad values dropped")
+        with open(tp, "w", encoding="utf-8") as f:
+            json.dump({**good, "style": {"layout": "board"}}, f)
+        check(read_style(sp, tp)["layout"] == "board" and read_style(sp, tp, "2")["layout"] == "logo",
+              "[screen.N] wins over livery's per-pack look")
+        set_style("bars", "dots", sp)
+        text = open(sp, encoding="utf-8").read()
+        check('[screen.2]\nlayout = "logo"' in text and read_style(sp, tp, "2")["layout"] == "logo",
+              "[screen.N] tables survive a --style write")
+        check(any("screen.3.layout" in x or "layout" in x for x in check_config(sp)), "check names a bad screen value")
+    check(screen_of("/stats?t=x&screen=2") == "2" and screen_of("/stats?screen=../x") is None, "?screen= read safely")
     ids = distro_ids()
     check("arch" in ids and "nixos" in ids and len(ids) >= 20, "the distro list comes from logos.js")
     check(all(f"#   {x}" in render_config({}) or f", {x}" in render_config({}) for x in ("arch", "mx")),
