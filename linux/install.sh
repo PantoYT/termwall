@@ -56,7 +56,7 @@ case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) grep -q '# termwall: ~/.local/bin on PATH' "$HOME/.bashrc" 2>/dev/null ||
            echo 'export PATH="$HOME/.local/bin:$PATH"  # termwall: ~/.local/bin on PATH' >> "$HOME/.bashrc"
-       echo "added ~/.local/bin to PATH in ~/.bashrc (open a new terminal for the termwall command)";;
+       echo "added ~/.local/bin to PATH in ~/.bashrc: open a new terminal, or run: source ~/.bashrc";;
 esac
 
 # 2. the stats server
@@ -96,7 +96,10 @@ else
     echo "wallpaper: no Hyprland config found; start it yourself with: $LAYER"
 fi
 
-sleep 1
+for _ in $(seq 20); do   # the first start (psutil import, first sample) can take a few seconds
+    curl -fs http://127.0.0.1:9002/health >/dev/null && break
+    sleep 0.5
+done
 if curl -fs http://127.0.0.1:9002/health >/dev/null; then
     echo "server: running ($(curl -s http://127.0.0.1:9002/health))"
 else
