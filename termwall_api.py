@@ -14,7 +14,8 @@ once per second, so a request never blocks on psutil or nvidia-smi.
     python termwall_api.py --unlink-we | --unlink-lively | --stop | --version
 
 Dependencies: psutil (CPU/RAM/disks/net/processes). The GPU comes from
-nvidia-smi if it exists; without it the "gpu" field is null.
+nvidia-smi if it exists, else on Linux from the kernel's DRM interfaces (Intel i915/xe,
+AMD amdgpu); without either the "gpu" field is null.
 """
 
 from __future__ import annotations
@@ -761,18 +762,204 @@ def parse_nvidia_smi(line: str) -> dict | None:
             "power": num(parts[5]), "clock": num(parts[6])}
 
 
+# Linux without nvidia-smi: what the kernel exposes, no root needed. AMD reports utilisation,
+# temperature, power and VRAM in sysfs. Intel does not report utilisation anywhere a user can
+# read except per DRM client: each open /dev/dri file's fdinfo carries the nanoseconds every
+# engine spent on that client (what nvtop and gputop read). Summing the deltas over the
+# user's processes covers the compositor, browsers and games, which is what loads the GPU.
+
+DRM_DRIVERS = ("i915", "xe", "amdgpu")
+_drm = {"card": None, "name": None, "busy": None, "t": None}
+
+
+def _read(path: str) -> str | None:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def _num(path: str, scale: float = 1.0) -> float | None:
+    v = _read(path)
+    try:
+        return float(v) / scale if v is not None else None
+    except ValueError:
+        return None
+
+
+def drm_card() -> tuple[str, str] | None:
+    """The first DRM card with a driver read here: (sysfs card path, driver name)."""
+    import glob
+    for card in sorted(glob.glob("/sys/class/drm/card[0-9]")):
+        try:
+            driver = os.path.basename(os.readlink(card + "/device/driver"))
+        except OSError:
+            continue
+        if driver in DRM_DRIVERS:
+            return card, driver
+    return None
+
+
+def gpu_marketing_name(lspci_line: str, driver: str) -> str:
+    """'00:02.0 VGA ...: Intel Corporation Arrow Lake-P [Arc Pro 130T/140T] (rev 03)' ->
+    'Intel Arc Pro 130T/140T'. Without a bracket, the device part after the vendor."""
+    import re
+    vendor = "AMD" if driver == "amdgpu" else "Intel"
+    text = lspci_line.split(": ", 1)[-1]
+    text = re.sub(r"\s*\(rev [0-9a-f]+\)$", "", text)
+    names = re.findall(r"\[([^\]]+)\]", text)
+    if names and names[-1] not in ("AMD/ATI", "AMD"):
+        name = names[-1]
+    else:
+        name = re.sub(r"^(Intel Corporation|Advanced Micro Devices, Inc\. \[AMD/ATI\])\s*", "", text)
+    return name if name.startswith(vendor) else f"{vendor} {name}"
+
+
+def drm_name(card: str, driver: str) -> str:
+    slot = os.path.basename(os.path.realpath(card + "/device"))
+    exe = shutil.which("lspci")
+    if exe:
+        try:
+            out = subprocess.run([exe, "-s", slot], capture_output=True, text=True, timeout=3).stdout
+            if out.strip():
+                return gpu_marketing_name(out.strip().splitlines()[0], driver)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return "AMD GPU" if driver == "amdgpu" else "Intel GPU"
+
+
+def parse_fdinfo(text: str) -> tuple[str | None, str | None, dict[str, tuple[int, int]]]:
+    """One DRM fdinfo -> (pdev, client id, {engine: (busy ns, capacity)})."""
+    pdev = client = None
+    busy, cap = {}, {}
+    for line in text.splitlines():
+        key, _, val = line.partition(":")
+        val = val.strip()
+        if key == "drm-pdev":
+            pdev = val
+        elif key == "drm-client-id":
+            client = val
+        elif key.startswith("drm-engine-capacity-"):
+            cap[key[len("drm-engine-capacity-"):]] = int(val or 1)
+        elif key.startswith("drm-engine-") and val.endswith(" ns"):
+            busy[key[len("drm-engine-"):]] = int(val[:-3])
+    return pdev, client, {e: (ns, cap.get(e, 1)) for e, ns in busy.items()}
+
+
+def drm_busy(pdev: str) -> dict[tuple[str, str], tuple[int, int]]:
+    """{(client id, engine): (busy ns, capacity)} over every DRM client this user can read."""
+    out = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        fd_dir = f"/proc/{pid}/fd"
+        try:
+            fds = os.listdir(fd_dir)
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                if not os.readlink(f"{fd_dir}/{fd}").startswith("/dev/dri/"):
+                    continue
+            except OSError:
+                continue
+            text = _read(f"/proc/{pid}/fdinfo/{fd}")
+            if not text:
+                continue
+            dev, client, engines = parse_fdinfo(text)
+            if dev != pdev or client is None:
+                continue
+            for engine, v in engines.items():
+                out[(client, engine)] = v   # several fds of one client report the same numbers
+    return out
+
+
+def busy_percent(prev: dict, cur: dict, dt: float) -> float:
+    """Utilisation of the busiest engine class between two drm_busy() samples."""
+    per_engine: dict[str, float] = {}
+    for (client, engine), (ns, cap) in cur.items():
+        before = prev.get((client, engine))
+        if before is None or ns < before[0]:
+            continue                                    # a new client, or a restarted one
+        per_engine[engine] = per_engine.get(engine, 0.0) + (ns - before[0]) / max(cap, 1)
+    if not per_engine or dt <= 0:
+        return 0.0
+    return round(min(100.0, max(per_engine.values()) / (dt * 1e9) * 100), 1)
+
+
+def read_gpu_drm() -> dict | None:
+    if _drm["card"] is None:
+        _drm["card"] = drm_card() or False
+        if _drm["card"]:
+            _drm["name"] = drm_name(*_drm["card"])
+    if not _drm["card"]:
+        return None
+    card, driver = _drm["card"]
+    dev = card + "/device"
+    g = {"name": _drm["name"], "util": None, "temp": None, "vram_used": None, "vram_total": None,
+         "power": None, "clock": None}
+    if driver == "amdgpu":
+        import glob
+        g["util"] = _num(dev + "/gpu_busy_percent")
+        hw = (glob.glob(dev + "/hwmon/hwmon*") or [None])[0]
+        if hw:
+            g["temp"] = _num(hw + "/temp1_input", 1000)
+            g["power"] = _num(hw + "/power1_average", 1e6) or _num(hw + "/power1_input", 1e6)
+        g["vram_used"] = _num(dev + "/mem_info_vram_used", 1024 ** 2)
+        g["vram_total"] = _num(dev + "/mem_info_vram_total", 1024 ** 2)
+        for line in (_read(dev + "/pp_dpm_sclk") or "").splitlines():
+            if line.endswith("*"):
+                g["clock"] = _num_text(line)
+        return g
+    # Intel: utilisation from fdinfo, clock from sysfs (i915 on the card, xe per GT)
+    pdev = os.path.basename(os.path.realpath(dev))
+    now, cur = time.time(), drm_busy(pdev)
+    if _drm["busy"] is not None:
+        g["util"] = busy_percent(_drm["busy"], cur, now - _drm["t"])
+    _drm["busy"], _drm["t"] = cur, now
+    # the actual clock is 0 while the GPU sleeps (RC6); the requested one then
+    for f in (card + "/gt_act_freq_mhz", dev + "/tile0/gt0/freq0/act_freq",
+              card + "/gt_cur_freq_mhz", dev + "/tile0/gt0/freq0/cur_freq"):
+        if (v := _num(f)):
+            g["clock"] = v
+            break
+    return g
+
+
+def _num_text(line: str) -> float | None:
+    """'1: 2100Mhz *' -> 2100.0"""
+    import re
+    m = re.search(r"(\d+)\s*[Mm]hz", line)
+    return float(m.group(1)) if m else None
+
+
 def read_gpu() -> dict | None:
+    # nvidia-smi first; on Linux the kernel's view when it is missing or finds no NVIDIA card
+    # (nvidia-utils is often installed on machines without one)
+    g = read_gpu_nvidia()
+    if g is None and sys.platform.startswith("linux"):
+        return read_gpu_drm()
+    return g
+
+
+_nvidia = {"failed": 0}
+
+
+def read_gpu_nvidia() -> dict | None:
     exe = shutil.which("nvidia-smi")
-    if not exe:
+    if not exe or _nvidia["failed"] >= 3:      # three failures in a row: no NVIDIA card here
         return None
     try:
-        out = subprocess.run([exe, "--query-gpu=" + ",".join(GPU_FIELDS),
-                              "--format=csv,noheader,nounits"],
-                             capture_output=True, text=True, timeout=3,
-                             creationflags=CREATE_NO_WINDOW).stdout
+        r = subprocess.run([exe, "--query-gpu=" + ",".join(GPU_FIELDS),
+                            "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=3,
+                           creationflags=CREATE_NO_WINDOW)
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return parse_nvidia_smi(out.splitlines()[0]) if out.strip() else None
+    g = parse_nvidia_smi(r.stdout.splitlines()[0]) if r.returncode == 0 and r.stdout.strip() else None
+    _nvidia["failed"] = 0 if g else _nvidia["failed"] + 1
+    return g
 
 
 # ─── install helpers (the Windows installer runs these) ─────────────────────
@@ -1118,8 +1305,10 @@ def make_handler(sampler: Sampler, token: str):
 class ExclusiveServer(ThreadingHTTPServer):
     """http.server sets SO_REUSEADDR, and on Windows that lets a second server bind the same
     port next to a running one: two servers, and the second one's token.js locks the wallpaper
-    out of the first. Exclusive use instead (Windows), or no reuse at all elsewhere."""
-    allow_reuse_address = False
+    out of the first. Exclusive use instead on Windows. Elsewhere SO_REUSEADDR stays: there it
+    never lets two listeners share a port, and without it a restarted server can't bind for
+    about a minute while the old connections sit in TIME_WAIT."""
+    allow_reuse_address = os.name != "nt"
 
     def server_bind(self):
         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
@@ -1722,6 +1911,21 @@ def selftest() -> int:
     g2 = parse_nvidia_smi("GPU, 5, 40, 100, 200, [N/A], 900")
     check(g2 and g2["power"] is None and g2["util"] == 5.0, "[N/A] -> None")
     check(parse_nvidia_smi("too,few") is None, "wrong field count")
+    check(gpu_marketing_name("00:02.0 VGA compatible controller: Intel Corporation Arrow Lake-P "
+                             "[Arc Pro 130T/140T] (rev 03)", "i915") == "Intel Arc Pro 130T/140T",
+          "Intel GPU name from lspci")
+    check(gpu_marketing_name("03:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] "
+                             "Navi 23 [Radeon RX 6600] (rev c7)", "amdgpu") == "AMD Radeon RX 6600",
+          "AMD GPU name from lspci")
+    fi = "drm-driver:\ti915\ndrm-client-id:\t16\ndrm-pdev:\t0000:00:02.0\n" \
+         "drm-engine-render:\t1000 ns\ndrm-engine-video:\t0 ns\ndrm-engine-capacity-video:\t2\n"
+    dev, cl, eng = parse_fdinfo(fi)
+    check(dev == "0000:00:02.0" and cl == "16" and eng == {"render": (1000, 1), "video": (0, 2)},
+          "DRM fdinfo")
+    prev = {("16", "render"): (0, 1), ("16", "video"): (0, 2)}
+    cur = {("16", "render"): (250_000_000, 1), ("16", "video"): (1_000_000_000, 2),
+           ("17", "render"): (9_000_000_000, 1)}
+    check(busy_percent(prev, cur, 1.0) == 50.0, "GPU busy: busiest engine, capacity, new clients skipped")
 
     s = Sampler()
     s.sample()

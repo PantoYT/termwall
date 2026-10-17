@@ -733,6 +733,10 @@ function render(s){
   const hidden = new Set(style.hide || []);
   document.body.classList.toggle("hide-logo", hidden.has("logo") || style.logo === "none");
   const g = s.gpu;
+  // NVIDIA and AMD report temperature and power; Intel only its clock
+  const gpuDetail = g => g.temp != null
+    ? `${g.temp}°C${g.power != null ? " · " + g.power.toFixed(0) + " W" : ""}`
+    : g.clock != null ? `${g.clock.toFixed(0)} MHz` : "-";
   put("title", `<span class="k">${esc(s.user)}</span><span class="at">@</span><span class="k">${esc(s.host)}</span>`);
   const cmd = `<span class="${{accent: "k", secondary: "t", dim: "d"}[style.prompt_color] || "g"}">${esc(style.prompt ?? "fastfetch --live")}</span>`;
   put("prompt", linux
@@ -756,7 +760,7 @@ function render(s){
     row("Shell", esc(s.shell)),
     row("CPU", `${esc(s.cpu_model)} (${s.cores}) @ ${((s.cpu_freq || 0)/1000).toFixed(2)} GHz`),
     row("", `${bar(s.cpu)} <span class="pct">${s.cpu.toFixed(0)}%</span>`),
-    hidden.has("gpu") ? "" : g ? row("GPU", `${esc(g.name)} · ${g.temp ?? "-"}°C · ${g.power != null ? g.power.toFixed(0)+" W" : ""}`) : row("GPU", "-"),
+    hidden.has("gpu") ? "" : g ? row("GPU", `${esc(g.name)} · ${gpuDetail(g)}`) : row("GPU", "-"),
     !hidden.has("gpu") && g ? row("", `${bar(g.util ?? 0)} <span class="pct">${(g.util ?? 0).toFixed(0)}%</span>  <span class="d">vram</span> ${(g.vram_used/1024).toFixed(1)} / ${(g.vram_total/1024).toFixed(0)} GiB`) : "",
     hidden.has("memory") ? "" : row("Memory", `${gib(s.ram.used)} / ${gib(s.ram.total)} <span class="pct">(${s.ram.percent.toFixed(0)}%)</span>  <span class="d">swap</span> ${gib(s.swap.used)}`),
     hidden.has("memory") ? "" : row("", bar(s.ram.percent)),
@@ -777,12 +781,12 @@ function render(s){
     `<tr><td class="n">${esc(p.name.replace(/\.exe$/i, ""))}${p.count > 1 ? ` <span class="d">×${p.count}</span>` : ""}</td><td class="c">${p.cpu.toFixed(1)}%</td><td class="m">${(p.mem/1024**2).toFixed(0)} MiB</td></tr>`).join(""));
   // board boxes
   put("gpu-box", g
-    ? `<div class="big">${(g.util ?? 0).toFixed(0)}<small>%  ${g.temp ?? "-"}°C</small></div>` +
+    ? `<div class="big">${(g.util ?? 0).toFixed(0)}<small>%  ${gpuDetail(g)}</small></div>` +
       kv("name", esc(g.name.replace(/^NVIDIA (GeForce )?/, ""))) +
-      kv("vram", `${(g.vram_used/1024).toFixed(1)} / ${(g.vram_total/1024).toFixed(0)} GiB`) +
+      (g.vram_total ? kv("vram", `${(g.vram_used/1024).toFixed(1)} / ${(g.vram_total/1024).toFixed(0)} GiB`) : "") +
       kv("power", g.power != null ? g.power.toFixed(0) + " W" : "-") +
-      `<div style="margin-top:8px">${bar(g.vram_total ? g.vram_used / g.vram_total * 100 : 0, 26)}</div>`
-    : `<div class="big">n/a</div><div class="d">no NVIDIA GPU (nvidia-smi) found</div>`);
+      (g.vram_total ? `<div style="margin-top:8px">${bar(g.vram_used / g.vram_total * 100, 26)}</div>` : "")
+    : `<div class="big">n/a</div><div class="d">no GPU data (nvidia-smi, or Linux DRM)</div>`);
   put("mem-sum", s.ram.percent.toFixed(0) + "%");
   put("mem-box", `<div class="big">${gib(s.ram.used).replace(" GiB", "")}<small> / ${gib(s.ram.total)}</small></div>` +
     `<div>${bar(s.ram.percent, 26)}</div>` +
@@ -828,7 +832,7 @@ function render(s){
   fitBigLogo();
   put("phone-gauges", [
     hidden.has("cpu") ? "" : gauge("CPU", s.cpu, `${s.cores} threads · ${((s.cpu_freq || 0) / 1000).toFixed(2)} GHz`, s.history.cpu),
-    hidden.has("gpu") ? "" : gauge("GPU", g ? g.util ?? 0 : null, g ? `${g.temp ?? "-"}°C · ${g.power != null ? g.power.toFixed(0) + " W" : "-"}` : "no NVIDIA GPU", g ? s.history.gpu : null),
+    hidden.has("gpu") ? "" : gauge("GPU", g ? g.util ?? 0 : null, g ? gpuDetail(g) : "no GPU data", g ? s.history.gpu : null),
     hidden.has("memory") ? "" : gauge("MEMORY", s.ram.percent, `${gib(s.ram.used)} / ${gib(s.ram.total)}`),
     hidden.has("gpu") || !g ? (hidden.has("memory") ? "" : gauge("SWAP", s.swap.percent, `${gib(s.swap.used)} / ${gib(s.swap.total)}`))
       : gauge("VRAM", g.vram_total ? g.vram_used / g.vram_total * 100 : 0, `${(g.vram_used / 1024).toFixed(1)} / ${(g.vram_total / 1024).toFixed(0)} GiB`),
