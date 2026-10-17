@@ -73,7 +73,15 @@ RestartSec=3
 [Install]
 WantedBy=default.target
 UNIT
-pkill -f "$DIR/termwall_api.py" 2>/dev/null || true   # a hand-started server holds the port
+# A hand-started server holds the port; until it is gone the service would only restart
+# against "already running".
+if ! systemctl --user is-active -q termwall-api.service && pkill -f "$DIR/termwall_api.py" 2>/dev/null; then
+    for _ in $(seq 20); do
+        curl -fs http://127.0.0.1:9002/health >/dev/null || break
+        sleep 0.5
+    done
+    pkill -9 -f "$DIR/termwall_api.py" 2>/dev/null || true
+fi
 systemctl --user daemon-reload
 systemctl --user enable --now termwall-api.service
 
