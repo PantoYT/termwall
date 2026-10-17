@@ -10,6 +10,7 @@
 #   ~/.config/systemd/user/termwall-api.service   stats server, starts at login
 #   one marked block in ~/.config/caelestia/hypr-user.lua (Caelestia, Hyprland Lua config)
 #     or in ~/.config/hypr/hyprland.conf (plain Hyprland, exec-once)
+#     or ~/.config/autostart/termwall.desktop (KDE, GNOME and other XDG desktops)
 #   one marked line in ~/.bashrc if ~/.local/bin is not on PATH yet
 set -euo pipefail
 
@@ -19,6 +20,7 @@ UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/termwall-api.service"
 LUA="$HOME/.config/caelestia/hypr-user.lua"
 CONF="$HOME/.config/hypr/hyprland.conf"
+DESKTOP="$HOME/.config/autostart/termwall.desktop"
 BEGIN="-- termwall begin"
 END="-- termwall end"
 LAYER="python3 $DIR/linux/termwall-layer.py"
@@ -29,7 +31,7 @@ strip_block() {  # file, begin, end: remove a marked block if it is there
 
 if [ "${1:-}" = "--remove" ]; then
     systemctl --user disable --now termwall-api.service 2>/dev/null || true
-    rm -f "$UNIT" "$BIN"
+    rm -f "$UNIT" "$BIN" "$DESKTOP"
     systemctl --user daemon-reload
     strip_block "$LUA" "$BEGIN" "$END"
     strip_block "$CONF" "# termwall begin" "# termwall end"
@@ -39,13 +41,26 @@ if [ "${1:-}" = "--remove" ]; then
     exit 0
 fi
 
+# Packages: psutil for the server; GTK4, WebKitGTK 6 and gtk4-layer-shell (with their
+# GObject introspection data) for the wallpaper window.
 missing=()
-for pkg in python-psutil python-gobject gtk4 webkitgtk-6.0 gtk4-layer-shell; do
-    pacman -Q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
-done
-if [ ${#missing[@]} -gt 0 ] && command -v pacman >/dev/null; then
-    echo "installing: ${missing[*]}"
-    sudo pacman -S --needed "${missing[@]}"
+if command -v pacman >/dev/null; then
+    for pkg in python-psutil python-gobject gtk4 webkitgtk-6.0 gtk4-layer-shell; do
+        pacman -Q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+    done
+    [ ${#missing[@]} -eq 0 ] || sudo pacman -S --needed "${missing[@]}"
+elif command -v dnf >/dev/null; then
+    for pkg in python3-psutil python3-gobject gtk4 webkitgtk6.0 gtk4-layer-shell; do
+        rpm -q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+    done
+    [ ${#missing[@]} -eq 0 ] || sudo dnf install -y "${missing[@]}"
+elif command -v apt-get >/dev/null; then
+    for pkg in python3-psutil python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-gtk4layershell-1.0; do
+        dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+    done
+    [ ${#missing[@]} -eq 0 ] || { sudo apt-get update && sudo apt-get install -y "${missing[@]}"; }
+else
+    echo "unknown package manager: install psutil, PyGObject, GTK4, WebKitGTK 6 and gtk4-layer-shell yourself"
 fi
 
 # 1. the command
@@ -101,7 +116,18 @@ elif [ -f "$CONF" ]; then
     printf '# termwall begin\nexec-once = %s\n# termwall end\n' "$LAYER" >> "$CONF"
     echo "wallpaper: added to $CONF (starts with the next Hyprland login)"
 else
-    echo "wallpaper: no Hyprland config found; start it yourself with: $LAYER"
+    # KDE, GNOME and most others start ~/.config/autostart entries with the session
+    mkdir -p "$(dirname "$DESKTOP")"
+    cat > "$DESKTOP" <<ENTRY
+[Desktop Entry]
+Type=Application
+Name=termwall
+Comment=termwall wallpaper (linux/termwall-layer.py)
+Exec=$LAYER
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+ENTRY
+    echo "wallpaper: added $DESKTOP (starts with the next login)"
 fi
 
 for _ in $(seq 20); do   # the first start (psutil import, first sample) can take a few seconds
