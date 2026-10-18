@@ -35,7 +35,7 @@ pre.logo .g{color:var(--grey)}
 .title .at{color:var(--grey);font-weight:400}
 .sep{color:var(--dim);margin:2px 0 10px}
 .row{display:flex;white-space:nowrap}
-.row .key{color:var(--mint);width:140px;flex:none}
+.row .key{color:var(--mint);width:max(140px,15.5ch);flex:none;overflow:hidden;text-overflow:ellipsis}
 .row .val{color:var(--grey);overflow:hidden;text-overflow:ellipsis}
 .bar{color:var(--teal);letter-spacing:-1px}
 .bar .e{color:var(--faint)}
@@ -538,6 +538,13 @@ function spark(vals, max = 100, n = 60){
   return v.map(x => BLOCKS[Math.min(7, Math.floor(Math.max(0, x)/max*7.999))]).join(""); }
 function uptime(s){ const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
   return (d ? d+" days, " : "") + (h ? h+" hours, " : "") + m + " mins"; }
+// Linux mount points can be long (/var/cache/apt/archives) and the key column is narrow: short
+// ones stay ("/", "/home", "C:"), longer ones show their last folder ("/mnt/data" -> "data")
+function shortMount(m){
+  if (m.length <= 6) return m;
+  const last = m.split(/[\/]/).filter(Boolean).pop() || m;
+  return last.length <= 6 ? last : last.slice(0, 5) + "…";
+}
 function row(k, v){ return `<div class="row"><span class="key">${k ? k + ":" : ""}</span><span class="val">${v}</span></div>`; }
 const kv = (k, v) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`;
 
@@ -764,7 +771,7 @@ function render(s){
     !hidden.has("gpu") && g ? row("", `${bar(g.util ?? 0)} <span class="pct">${(g.util ?? 0).toFixed(0)}%</span>  <span class="d">vram</span> ${(g.vram_used/1024).toFixed(1)} / ${(g.vram_total/1024).toFixed(0)} GiB`) : "",
     hidden.has("memory") ? "" : row("Memory", `${gib(s.ram.used)} / ${gib(s.ram.total)} <span class="pct">(${s.ram.percent.toFixed(0)}%)</span>  <span class="d">swap</span> ${gib(s.swap.used)}`),
     hidden.has("memory") ? "" : row("", bar(s.ram.percent)),
-    ...(hidden.has("disks") ? [] : s.disks).slice(0, 4).map(d => row(`Disk (${esc(d.mount)})`, `${bar(d.percent, 12)} ${gib(d.used)} / ${gib(d.total)} <span class="d">${esc(d.fs)}</span>`)),
+    ...(hidden.has("disks") ? [] : s.disks).slice(0, 4).map(d => row(`Disk (${esc(shortMount(d.mount))})`, `${bar(d.percent, 12)} ${gib(d.used)} / ${gib(d.total)} <span class="d">${esc(d.fs)}</span>`)),
     hidden.has("network") ? "" : row("Network", `<span class="k">↓</span> ${rate(s.net.down)}  <span class="t">↑</span> ${rate(s.net.up)}  <span class="d">·</span> ${esc(s.local_ip)}`),
   ].join(""));
   put("who", [esc(s.os), esc(s.kernel), "up " + uptime(s.uptime)].map(x => `<div class="d">${x}</div>`).join(""));
