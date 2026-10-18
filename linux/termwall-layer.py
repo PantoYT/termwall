@@ -31,10 +31,13 @@ PAGE = Path(__file__).resolve().parent.parent / "index.html"
 
 
 def preload_path():
-    for d in ("/usr/lib", "/usr/lib64", "/usr/local/lib", "/usr/lib/x86_64-linux-gnu"):
-        p = Path(d) / PRELOAD
-        if p.exists():
-            return str(p)
+    # Arch ships libgtk4-layer-shell.so in the main package; Fedora and Debian only the
+    # versioned .so.N there (the bare .so comes with -devel), so take either.
+    for d in ("/usr/lib", "/usr/lib64", "/usr/local/lib", "/usr/lib/x86_64-linux-gnu",
+              "/usr/lib/aarch64-linux-gnu"):
+        found = sorted(Path(d).glob(PRELOAD + "*")) if Path(d).is_dir() else []
+        if found:
+            return str(found[0])
     return None
 
 
@@ -56,8 +59,11 @@ def main():
     gi.require_version("Gtk", "4.0")
     gi.require_version("Gtk4LayerShell", "1.0")
     gi.require_version("WebKit", "6.0")
-    from gi.repository import Gtk, Gtk4LayerShell as Layer, WebKit
+    from gi.repository import Gdk, Gtk, Gtk4LayerShell as Layer, WebKit
 
+    if not os.environ.get("WAYLAND_DISPLAY") or Gdk.Display.get_default() is None:
+        sys.exit("no Wayland session here (WAYLAND_DISPLAY unset or not reachable); "
+                 "run this inside the desktop session")
     if not Layer.is_supported():
         sys.exit("this compositor has no wlr-layer-shell (GNOME does not); termwall can't sit on the desktop")
     page = Path(args.page).resolve()
@@ -90,7 +96,6 @@ def main():
         print(f"termwall on {monitor.get_connector()} (screen {screen}, {args.layer} layer)")
 
     def activate(_app):
-        from gi.repository import Gdk
         monitors = Gdk.Display.get_default().get_monitors()
         found = 0
         for i in range(monitors.get_n_items()):

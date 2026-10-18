@@ -281,20 +281,33 @@ publishes the release. `tools\fetch_logos.py` rebuilds `logos.js`.
 URL (`&layout=htop&effects=crt`), a palette (`&bg=…&accent=…`, all six, hex without `#`),
 `&distro=arch` or `&distro=cycle` (every logo, five seconds each).
 
-## Linux
+## Linux (experimental)
 
-The server works on Linux: it reads the distro from `/etc/os-release`, the CPU from
-`/proc/cpuinfo`, the board from DMI, and skips pseudo filesystems (snaps, Docker overlays).
-Tested on Ubuntu 24.04. The page shows your distro's logo (about 25 distros; derivatives get
-their parent's through `ID_LIKE`, the rest a Tux) and, without a `theme.json`, its colors.
+On Linux termwall puts the page on the desktop itself: `linux/termwall-layer.py` opens one
+borderless WebKitGTK view per monitor as a wlr-layer-shell background surface, the way a
+wallpaper daemon places its image. That works on compositors with layer-shell: Hyprland,
+Sway, river, niri, KDE Plasma. **Not GNOME**, which has no layer-shell; the script says so
+and exits.
 
-Running the server: `pip install psutil`, then `python3 termwall_api.py` (`--selftest`
-first, if you like). To start it at login, use your desktop's autostart or a systemd user
-unit; neither is set up for you.
+```
+git clone https://github.com/PantoYT/termwall ~/termwall
+bash ~/termwall/linux/install.sh
+```
 
-**Not tested: what puts the page on the desktop.** Wallpaper Engine and Lively are
-Windows-only; a tool that uses a web page as a wallpaper should work (KDE Plasma has
-wallpaper plugins for that), but none has been tried. No installer for Linux either.
+`install.sh` installs the packages (pacman, dnf or apt), adds a `termwall` command, runs
+the stats server as a systemd user service and starts the wallpaper with your session
+(Caelestia's `hypr-user.lua`, Hyprland's `exec-once`, or an XDG autostart entry for KDE and
+others). `bash linux/install.sh --remove` undoes all of it. If another wallpaper covers
+termwall, start it with `--layer bottom`.
+
+The server reads the distro from `/etc/os-release` (about 25 distro logos; derivatives get
+their parent's through `ID_LIKE`, the rest a Tux), the CPU from `/proc/cpuinfo`, the board
+from DMI, and the GPU from nvidia-smi or, without it, from the kernel: Intel (i915, xe)
+utilisation and clock, AMD (amdgpu) utilisation, temperature, power and VRAM.
+
+Tested: Arch with Hyprland and Caelestia on a laptop (Intel Arc); Fedora 44 and Ubuntu
+26.04 in containers, from a clean image through `install.sh` to a screenshot on a headless
+Sway (`bash linux/test/run.sh`, needs Docker). Not tested yet on a real KDE Plasma session.
 
 ## Credits
 

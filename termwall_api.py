@@ -772,7 +772,7 @@ DRM_DRIVERS = ("i915", "xe", "amdgpu")
 _drm = {"card": None, "name": None, "busy": None, "t": None}
 
 
-def _read(path: str) -> str | None:
+def _sysfs(path: str) -> str | None:
     try:
         with open(path, encoding="utf-8") as f:
             return f.read().strip()
@@ -781,7 +781,7 @@ def _read(path: str) -> str | None:
 
 
 def _num(path: str, scale: float = 1.0) -> float | None:
-    v = _read(path)
+    v = _sysfs(path)
     try:
         return float(v) / scale if v is not None else None
     except ValueError:
@@ -864,7 +864,7 @@ def drm_busy(pdev: str) -> dict[tuple[str, str], tuple[int, int]]:
                     continue
             except OSError:
                 continue
-            text = _read(f"/proc/{pid}/fdinfo/{fd}")
+            text = _sysfs(f"/proc/{pid}/fdinfo/{fd}")
             if not text:
                 continue
             dev, client, engines = parse_fdinfo(text)
@@ -908,7 +908,7 @@ def read_gpu_drm() -> dict | None:
             g["power"] = _num(hw + "/power1_average", 1e6) or _num(hw + "/power1_input", 1e6)
         g["vram_used"] = _num(dev + "/mem_info_vram_used", 1024 ** 2)
         g["vram_total"] = _num(dev + "/mem_info_vram_total", 1024 ** 2)
-        for line in (_read(dev + "/pp_dpm_sclk") or "").splitlines():
+        for line in (_sysfs(dev + "/pp_dpm_sclk") or "").splitlines():
             if line.endswith("*"):
                 g["clock"] = _num_text(line)
         return g
@@ -1193,7 +1193,8 @@ class Sampler:
         disks = []
         for part in psutil.disk_partitions(all=False):
             if "cdrom" in part.opts or not part.fstype or part.fstype in PSEUDO_FS \
-                    or part.mountpoint.startswith(("/snap", "/boot", "/var/lib/docker", "/run")):
+                    or part.mountpoint.startswith(("/snap", "/boot", "/var/lib/docker", "/run")) \
+                    or os.path.isfile(part.mountpoint):   # a bind-mounted file (containers' /etc/hosts)
                 continue
             try:
                 u = psutil.disk_usage(part.mountpoint)
@@ -1926,6 +1927,8 @@ def selftest() -> int:
     cur = {("16", "render"): (250_000_000, 1), ("16", "video"): (1_000_000_000, 2),
            ("17", "render"): (9_000_000_000, 1)}
     check(busy_percent(prev, cur, 1.0) == 50.0, "GPU busy: busiest engine, capacity, new clients skipped")
+    check(_read("/nonexistent/termwall") == "" and _sysfs("/nonexistent/termwall") is None,
+          "missing files: _read gives \"\" (static info), _sysfs gives None (GPU)")
 
     s = Sampler()
     s.sample()

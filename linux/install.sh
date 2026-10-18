@@ -4,6 +4,7 @@
 #
 #   bash linux/install.sh            # install (safe to run again)
 #   bash linux/install.sh --remove   # undo all of it
+#   bash linux/install.sh --deps     # only the distro packages (also as root, without sudo)
 #
 # What it touches, nothing else:
 #   ~/.local/bin/termwall                         command (calls termwall_api.py in this folder)
@@ -41,6 +42,9 @@ if [ "${1:-}" = "--remove" ]; then
     exit 0
 fi
 
+SUDO=sudo
+[ "$(id -u)" = 0 ] && SUDO=          # root, e.g. in a container: no sudo there
+
 # Packages: psutil for the server; GTK4, WebKitGTK 6 and gtk4-layer-shell (with their
 # GObject introspection data) for the wallpaper window.
 missing=()
@@ -48,19 +52,24 @@ if command -v pacman >/dev/null; then
     for pkg in python-psutil python-gobject gtk4 webkitgtk-6.0 gtk4-layer-shell; do
         pacman -Q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
     done
-    [ ${#missing[@]} -eq 0 ] || sudo pacman -S --needed "${missing[@]}"
+    [ ${#missing[@]} -eq 0 ] || $SUDO pacman -S --needed --noconfirm "${missing[@]}"
 elif command -v dnf >/dev/null; then
-    for pkg in python3-psutil python3-gobject gtk4 webkitgtk6.0 gtk4-layer-shell; do
+    for pkg in python3-psutil python3-gobject gobject-introspection gtk4 webkitgtk6.0 gtk4-layer-shell; do
         rpm -q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
     done
-    [ ${#missing[@]} -eq 0 ] || sudo dnf install -y "${missing[@]}"
+    [ ${#missing[@]} -eq 0 ] || $SUDO dnf install -y "${missing[@]}"
 elif command -v apt-get >/dev/null; then
-    for pkg in python3-psutil python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-gtk4layershell-1.0; do
+    for pkg in python3-psutil python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-gtk4layershell-1.0 libgtk4-layer-shell0; do
         dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
     done
-    [ ${#missing[@]} -eq 0 ] || { sudo apt-get update && sudo apt-get install -y "${missing[@]}"; }
+    [ ${#missing[@]} -eq 0 ] || { $SUDO apt-get update && DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y "${missing[@]}"; }
 else
     echo "unknown package manager: install psutil, PyGObject, GTK4, WebKitGTK 6 and gtk4-layer-shell yourself"
+fi
+
+if [ "${1:-}" = "--deps" ]; then
+    echo "packages: done"
+    exit 0
 fi
 
 # 1. the command
