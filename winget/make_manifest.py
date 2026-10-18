@@ -2,6 +2,7 @@
 
     python winget/make_manifest.py 1.1.0              # hashes the release asset from GitHub
     python winget/make_manifest.py 1.1.0 SHA256       # or give the hash
+    python winget/make_manifest.py 1.5.0 SHA256 2026-10-11   # and the release date
     winget validate winget/manifests/p/PantoYT/termwall/1.1.0
 
 The output goes under winget/manifests/, laid out like microsoft/winget-pkgs, ready to be
@@ -60,9 +61,11 @@ ShortDescription: A live, fastfetch-style system-stats wallpaper for Wallpaper E
 Description: |-
   termwall is a wallpaper that looks like a terminal running fastfetch, live: system info,
   per-core CPU bars, CPU and GPU history, memory, disks, network and top processes, refreshed
-  every second. Three layouts (fetch, board, minimal) and a palette that can follow your
-  wallpaper. It runs inside Wallpaper Engine or Lively Wallpaper; the installer brings its own
-  Python and starts the local stats server at logon.
+  every second. Seven layouts (fetch, board, minimal, htop, portrait, phone, logo), effects,
+  bundled fonts, per-monitor settings in one commented termwall.toml, and a palette that can
+  follow your wallpaper. It runs inside Wallpaper Engine or Lively Wallpaper; the installer
+  brings its own Python and starts the local stats server at logon. termwall update installs
+  newer releases.
 Moniker: termwall
 Tags:
 - wallpaper
@@ -87,7 +90,8 @@ def main(argv: list[str]) -> int:
     out.mkdir(parents=True, exist_ok=True)
     kinds = {f"{ID}.yaml": "version", f"{ID}.installer.yaml": "installer",
              f"{ID}.locale.en-US.yaml": "defaultLocale"}
-    for name, text in manifests(version, sha, datetime.date.today().isoformat()).items():
+    date = argv[2] if len(argv) > 2 else datetime.date.today().isoformat()
+    for name, text in manifests(version, sha, date).items():
         schema = f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{kinds[name]}.{MANIFEST_VERSION}.schema.json\n\n"
         (out / name).write_text(schema + text, encoding="utf-8", newline="\n")
     print(f"wrote {out} (sha256 {sha})")
