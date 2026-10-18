@@ -7,6 +7,9 @@ set -euo pipefail
 NAME="${NAME:-distro}"
 cp -r /src /tmp/tw
 cd /tmp/tw
+# A fresh clone has none of these; the working copy on the host can (livery's theme.json, the
+# host's termwall.toml), and they would color and configure the test like that machine.
+rm -f theme.json termwall.toml termwall.json.old token.js share.json share-qr.png logo.txt logo.*
 
 # Keep downloaded packages in the cache volumes run.sh mounts: a rerun installs everything
 # again (that is what is tested) without downloading it again.
