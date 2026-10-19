@@ -34,7 +34,8 @@ The pictures come from the demo mode (`index.html?demo`) with made-up stats;
   (free, open source: `winget install rocksdanister.LivelyWallpaper`) or
   [Wallpaper Engine](https://store.steampowered.com/app/431960/) (paid, Steam). termwall is
   the page; one of these puts it on the desktop.
-- Linux: the stats work, the wallpaper host is untested. See [Linux](#linux).
+- Linux: Wayland compositors with layer-shell (Hyprland, Sway, KDE Plasma, ...), experimental.
+  See [Linux](#linux-experimental).
 
 ## Install
 
@@ -294,6 +295,20 @@ git clone https://github.com/PantoYT/termwall ~/termwall
 bash ~/termwall/linux/install.sh
 ```
 
+On Arch, the package from this repository instead (the AUR entry comes once AUR
+registration reopens):
+
+```
+git clone https://github.com/PantoYT/termwall && cd termwall/packaging/aur
+makepkg -si
+systemctl --user enable --now termwall-api.service
+termwall-layer          # add it to your compositor's autostart (Hyprland: exec-once = termwall-layer)
+```
+
+The package installs to `/usr/share/termwall`, so termwall keeps your settings in
+`~/.config/termwall` (`termwall config`) and its token in `~/.local/share/termwall`.
+A clone with `install.sh` keeps everything in its own folder, as on Windows.
+
 `install.sh` installs the packages (pacman, dnf or apt), adds a `termwall` command, runs
 the stats server as a systemd user service and starts the wallpaper with your session
 (Caelestia's `hypr-user.lua`, Hyprland's `exec-once`, or an XDG autostart entry for KDE and
@@ -307,7 +322,8 @@ utilisation and clock, AMD (amdgpu) utilisation, temperature, power and VRAM.
 
 Tested: Arch with Hyprland and Caelestia on a laptop (Intel Arc); Fedora 44 and Ubuntu
 26.04 in containers, from a clean image through `install.sh` to a screenshot on a headless
-Sway (`bash linux/test/run.sh`, needs Docker). Not tested yet on a real KDE Plasma session.
+Sway (`bash linux/test/run.sh`, needs Docker); the Arch package in a clean Arch container
+through makepkg, namcap and pacman to the same screenshot (`bash linux/test/aur.sh`). Not tested yet on a real KDE Plasma session.
 
 ## Credits
 

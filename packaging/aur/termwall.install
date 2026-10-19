@@ -1,0 +1,14 @@
+post_install() {
+    cat <<'EOF'
+termwall: run these as your user (not root):
+  systemctl --user enable --now termwall-api.service   # the stats server, from now on at login
+  termwall-layer                                       # the wallpaper; add it to your autostart
+                                                       # (Hyprland: exec-once = termwall-layer)
+If your shell draws its own wallpaper over it: termwall-layer --layer bottom
+Settings: termwall config (~/.config/termwall/termwall.toml). GNOME has no layer-shell: not supported.
+EOF
+}
+
+post_upgrade() {
+    echo "termwall: restart the server to use the new version: systemctl --user restart termwall-api"
+}

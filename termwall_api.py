@@ -38,14 +38,30 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+# Where termwall keeps what it writes. A clone or the Windows installer: its own folder, as
+# always. A system package (read-only /usr/share/termwall, marked by a SYSTEM-INSTALL file):
+# the settings in $XDG_CONFIG_HOME/termwall, and token.js and share.json in
+# $XDG_DATA_HOME/termwall, which is also where the wallpaper loads the page from (links to the
+# packaged files, made by prepare_page_dir, so token.js sits next to index.html).
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+SYSTEM_INSTALL = os.path.exists(os.path.join(APP_DIR, "SYSTEM-INSTALL"))
+
+
+def _xdg_dir(var: str, fallback: str) -> str:
+    return os.path.join(os.environ.get(var) or os.path.join(os.path.expanduser("~"), fallback), "termwall")
+
+
+CONFIG_DIR = _xdg_dir("XDG_CONFIG_HOME", ".config") if SYSTEM_INSTALL else APP_DIR
+DATA_DIR = _xdg_dir("XDG_DATA_HOME", os.path.join(".local", "share")) if SYSTEM_INSTALL else APP_DIR
+PAGE_ASSETS = ("index.html", "logos.js", "fonts")
 # Optional palette written by an external switcher (e.g. rice). The page swaps its
 # CSS variables when this changes — no wallpaper reload.
-THEME_FILE = os.environ.get("TERMWALL_THEME") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "theme.json")
+THEME_FILE = os.environ.get("TERMWALL_THEME") or os.path.join(CONFIG_DIR, "theme.json")
 THEME_KEYS = ("bg", "accent", "secondary", "text", "dim", "faint")
 
 
@@ -60,7 +76,7 @@ def valid_theme(t) -> bool:
 # theme.json wins over it, so a switcher (livery) can give every palette its own look. Every key
 # is optional; anything unknown or invalid is dropped, so an old or hand-edited file can't break
 # the page. termwall.json (before 1.2) is carried over once.
-STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "termwall.toml")
+STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(CONFIG_DIR, "termwall.toml")
 LAYOUTS = ("fetch", "board", "minimal", "htop", "portrait", "phone", "logo")
 SECTIONS = ("prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
             "procs", "swatches", "music", "status")
@@ -583,8 +599,29 @@ def set_style(key: str, value: str, path: str | None = None) -> dict:
     return cur
 
 
-PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
-TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.js")
+PAGE_FILE = os.path.join(APP_DIR, "index.html")
+TOKEN_FILE = os.path.join(DATA_DIR, "token.js")
+
+
+def prepare_page_dir(app_dir: str = APP_DIR, data_dir: str = DATA_DIR) -> list[str]:
+    """A system package: links in data_dir to the packaged page, so the wallpaper loads it from
+    there with token.js beside it. Links that already point at the right file stay; returns
+    the ones made. Nothing to do when the page lives where it's written (clone, installer)."""
+    if os.path.abspath(app_dir) == os.path.abspath(data_dir):
+        return []
+    os.makedirs(data_dir, exist_ok=True)
+    made = []
+    for name in PAGE_ASSETS:
+        target, link = os.path.join(app_dir, name), os.path.join(data_dir, name)
+        if os.path.islink(link) and os.readlink(link) == target:
+            continue
+        if os.path.islink(link) or os.path.isfile(link):
+            os.remove(link)
+        elif os.path.isdir(link):
+            shutil.rmtree(link)
+        os.symlink(target, link)
+        made.append(link)
+    return made
 
 
 def write_token(path: str = TOKEN_FILE) -> str:
@@ -1325,7 +1362,7 @@ class ExclusiveServer(ThreadingHTTPServer):
 # new-key replaces it). User name, computer name and local IP never leave the PC on this
 # server, and the Host header has to be an IP address (a web page can't point a name at it).
 
-SHARE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "share.json")
+SHARE_FILE = os.path.join(DATA_DIR, "share.json")
 SHARE_PORT = 9012
 SHARE_STATIC = {"logos.js": "text/javascript; charset=utf-8"}
 
@@ -1838,6 +1875,10 @@ def cmd_update(args: list[str]) -> int:
     if kind == "git":
         print("this is a git clone: git pull, then restart the server (termwall stop, then termwall)")
         return 0
+    if SYSTEM_INSTALL:
+        print("installed by your package manager: update it there (AUR: termwall), then"
+              " systemctl --user restart termwall-api")
+        return 0
     asset = pick_installer(rel)
     if os.name != "nt" or kind != "installer" or not asset:
         print(f"download it from {RELEASES_PAGE}")
@@ -1879,6 +1920,9 @@ def serve() -> None:
         httpd = ExclusiveServer((HOST, PORT), make_handler(sampler, "pending"))
     except OSError:
         sys.exit(f"termwall's server is already running on {HOST}:{PORT} (check: http://{HOST}:{PORT}/health)")
+    if SYSTEM_INSTALL:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        prepare_page_dir()
     httpd.RequestHandlerClass = make_handler(sampler, write_token())
     try:
         ensure_config()
@@ -2208,6 +2252,17 @@ def selftest() -> int:
         check(read_share(sf) == {"enabled": False, "key": None, "port": SHARE_PORT}, "share is off without share.json")
         write_share({"enabled": True, "key": "short", "port": 80}, sf)
         check(read_share(sf) == {"enabled": True, "key": None, "port": SHARE_PORT}, "share.json: a short key and a bad port are refused")
+    check(prepare_page_dir(APP_DIR, APP_DIR) == [], "a clone or the installer keeps the page where it is")
+    if os.name != "nt":  # symlinks need extra rights on Windows, and packages are Linux only
+        with tempfile.TemporaryDirectory() as td:
+            app, data = os.path.join(td, "share"), os.path.join(td, "data")
+            os.makedirs(os.path.join(app, "fonts"))
+            for name in ("index.html", "logos.js"):
+                open(os.path.join(app, name), "w").close()
+            os.makedirs(os.path.join(data, "fonts"))  # a stale real folder is replaced by a link
+            check(len(prepare_page_dir(app, data)) == 3 and os.path.realpath(os.path.join(data, "index.html"))
+                  == os.path.realpath(os.path.join(app, "index.html")), "system package: page linked into the data dir")
+            check(prepare_page_dir(app, data) == [], "system package: correct links are left alone")
     print(f"selftest: {ok}/{ok + fail} OK")
     return 0 if fail == 0 else 1
 

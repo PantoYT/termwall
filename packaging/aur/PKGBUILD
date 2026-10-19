@@ -1,0 +1,51 @@
+# Maintainer: Panto (https://github.com/PantoYT)
+pkgname=termwall
+pkgver=2.1.0
+pkgrel=1
+pkgdesc="Live system-stats wallpaper: a terminal-style page on the desktop background (wlr-layer-shell)"
+arch=('any')
+url="https://github.com/PantoYT/termwall"
+license=('MIT' 'OFL-1.1')
+depends=('python' 'python-psutil' 'python-gobject' 'gtk4' 'webkitgtk-6.0' 'gtk4-layer-shell')
+install=termwall.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+check() {
+    cd "$pkgname-$pkgver"
+    python termwall_api.py --selftest
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    local share="$pkgdir/usr/share/$pkgname"
+
+    install -Dm644 termwall_api.py index.html logos.js -t "$share"
+    install -Dm644 fonts/*.woff2 -t "$share/fonts"
+    install -Dm755 linux/termwall-layer.py -t "$share/linux"
+    # Tells termwall its folder is read-only: settings go to ~/.config/termwall, token.js and
+    # share.json to ~/.local/share/termwall.
+    : > "$share/SYSTEM-INSTALL"
+
+    install -dm755 "$pkgdir/usr/bin"
+    printf '#!/bin/sh\nexec /usr/bin/python3 /usr/share/termwall/termwall_api.py "$@"\n' > "$pkgdir/usr/bin/termwall"
+    printf '#!/bin/sh\nexec /usr/bin/python3 /usr/share/termwall/linux/termwall-layer.py "$@"\n' > "$pkgdir/usr/bin/termwall-layer"
+    chmod 755 "$pkgdir/usr/bin/termwall" "$pkgdir/usr/bin/termwall-layer"
+
+    install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/user/termwall-api.service" <<'UNIT'
+[Unit]
+Description=termwall stats server
+
+[Service]
+ExecStart=/usr/bin/termwall
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+UNIT
+
+    install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+    install -Dm644 fonts/*-OFL.* -t "$pkgdir/usr/share/licenses/$pkgname"
+    install -Dm644 README.md -t "$pkgdir/usr/share/doc/$pkgname"
+}

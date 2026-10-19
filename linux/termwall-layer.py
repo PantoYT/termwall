@@ -24,10 +24,17 @@ Monitors get ?screen=1, 2, ... in the order the compositor lists them, so termwa
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 PRELOAD = "libgtk4-layer-shell.so"
-PAGE = Path(__file__).resolve().parent.parent / "index.html"
+APP = Path(__file__).resolve().parent.parent
+# A system package keeps the page the wallpaper loads in the data dir, where the server links it
+# next to token.js (termwall_api.py, prepare_page_dir); a clone shows its own index.html.
+if (APP / "SYSTEM-INSTALL").exists():
+    PAGE = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "termwall" / "index.html"
+else:
+    PAGE = APP / "index.html"
 
 
 def preload_path():
@@ -57,6 +64,7 @@ def main():
 
     import gi
     gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
     gi.require_version("Gtk4LayerShell", "1.0")
     gi.require_version("WebKit", "6.0")
     from gi.repository import Gdk, Gtk, Gtk4LayerShell as Layer, WebKit
@@ -66,9 +74,14 @@ def main():
                  "run this inside the desktop session")
     if not Layer.is_supported():
         sys.exit("this compositor has no wlr-layer-shell (GNOME does not); termwall can't sit on the desktop")
-    page = Path(args.page).resolve()
-    if not page.exists():
-        sys.exit(f"no page at {page}")
+    # absolute(), not resolve(): the page may be a link, and token.js is next to the link.
+    page = Path(args.page).absolute()
+    for _ in range(40):  # at login the server may still be making it
+        if page.exists():
+            break
+        time.sleep(0.25)
+    else:
+        sys.exit(f"no page at {page}" + (" (start the server first: termwall)" if page != APP / "index.html" else ""))
 
     app = Gtk.Application(application_id="eu.panto.termwall.layer")
     windows = []
