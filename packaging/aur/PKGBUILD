@@ -9,7 +9,7 @@ license=('MIT' 'OFL-1.1')
 depends=('python' 'python-psutil' 'python-gobject' 'gtk4' 'webkitgtk-6.0' 'gtk4-layer-shell')
 install=termwall.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('312927a77720a93d7a660cf057f32fd0e87246a38d47b106ad1c3dbc6b01d5f8')
 
 check() {
     cd "$pkgname-$pkgver"
