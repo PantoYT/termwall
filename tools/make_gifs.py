@@ -1,6 +1,6 @@
 """Build the README GIFs from termwall's demo mode (made-up stats, nothing of yours).
 
-    python tools/make_gifs.py --chrome PATH/TO/chrome-headless-shell [--only themes|settings]
+    python tools/make_gifs.py --chrome PATH/TO/chrome-headless-shell [--only themes|settings|distros]
 
 Needs a headless Chrome (npx @puppeteer/browsers install chrome-headless-shell@stable) and
 Pillow. Every frame is a screenshot of index.html?demo&..., so a GIF always shows the page as
@@ -74,6 +74,30 @@ SETTINGS = [  # (what the prompt line says, the URL settings)
 ]
 
 
+DISTROS = [  # (what the prompt line says, or None for the plain fastfetch prompt; the URL settings)
+    (None, ""),  # Windows, its own logo
+    *[(None, f"distro={d}") for d in ("arch", "ubuntu", "debian", "fedora", "linuxmint", "nixos", "cachyos")],
+    # any logo on any OS, in its own colors; the page's palette follows the logo, or a theme
+    ("logo apple", "logo=apple&logo_colors=own"),
+    ("logo windows-7", "logo=windows-7&logo_colors=own&" + palette("nord")),
+    ("logo windows-95", "logo=windows-95&logo_colors=own"),
+    ("logo chromeos", "logo=chromeos&logo_colors=own&" + palette("one-dark")),
+    ("logo amiga", "logo=amiga&logo_colors=own&" + palette("catppuccin")),
+    ("logo openbsd", "logo=openbsd&logo_colors=own&" + palette("gruvbox")),
+    ("logo freebsd", "logo=freebsd&logo_colors=own"),
+    ("logo macos  logo_colors palette", "logo=macos&logo_colors=palette&" + palette("rose-pine")),
+]
+
+
+def distros(chrome: str, tmp: Path) -> None:
+    frames = []
+    for i, (label, q) in enumerate(DISTROS):
+        f = tmp / f"distro-{i:02}.png"
+        shoot(chrome, q + ("&prompt=" + quote(f"termwall style {label}") if label else ""), f)
+        frames.append(f)
+    gif(frames, ROOT / "docs" / "distros.gif", 900)
+
+
 def settings(chrome: str, tmp: Path) -> None:
     frames = []
     for i, (label, q) in enumerate(SETTINGS):
@@ -86,7 +110,7 @@ def settings(chrome: str, tmp: Path) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--chrome", default=os.environ.get("TERMWALL_CHROME"), help="headless Chrome (or $TERMWALL_CHROME)")
-    ap.add_argument("--only", choices=("themes", "settings"))
+    ap.add_argument("--only", choices=("themes", "settings", "distros"))
     a = ap.parse_args()
     if not a.chrome:
         sys.exit("give --chrome PATH (a headless Chrome), or set TERMWALL_CHROME")
@@ -95,3 +119,5 @@ if __name__ == "__main__":
             themes(a.chrome, Path(td))
         if a.only in (None, "settings"):
             settings(a.chrome, Path(td))
+        if a.only in (None, "distros"):
+            distros(a.chrome, Path(td))

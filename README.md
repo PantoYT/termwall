@@ -2,11 +2,11 @@
 
 A live system-stats wallpaper in the style of [fastfetch](https://github.com/fastfetch-cli/fastfetch):
 system info, per-core CPU, CPU and GPU history, memory, disks, network and top processes,
-refreshed every second. Seven layouts, fourteen built-in themes, any distro's logo (or your own
-picture or GIF) with its colors, CRT effects, a different look on each monitor, one commented
+refreshed every second. Seven layouts, fourteen built-in themes, all 540 of fastfetch's logos (Linux,
+macOS, ChromeOS, Windows 95 to 11, the BSDs; or your own picture or GIF) in their own colors, CRT effects, a different look on each monitor, one commented
 settings file, and a palette that can follow your wallpaper.
 
-![termwall on Windows and twelve Linux distros](docs/distros.gif)
+![termwall on Windows, seven Linux distros, and the Apple, Windows 7 and 95, ChromeOS, Amiga, OpenBSD and FreeBSD logos in their own colors, macOS in the palette](docs/distros.gif)
 
 | fetch | board | htop |
 |---|---|---|
@@ -89,8 +89,9 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 | `date` | `long` (monday 5 october), `short`, `iso`, `none` | `long` |
 | `prompt` | the command in the prompt line, any text up to 60 characters | `fastfetch --live` |
 | `private` | `true` hides your user name, computer name and local IP (for streams and screenshots) | `false` |
-| `logo` | `auto`, `windows`, `tux`, `none`, `image` (see below), `custom` (your own ASCII art from `logo.txt` next to `termwall.toml`: up to 40 lines, `$1` accent, `$2` secondary, `$3` text, `$4` dim switch the color), or any distro's (`arch` on Windows works) | `auto` |
-| `logo_width`, `logo_chars`, `logo_colors` | with `logo = "image"`: a picture or an animated GIF (`logo.gif`, `.png`, `.jpg` or `.webp` next to `termwall.toml`, up to 8 MB) turned into text. `logo_width` 12-120 characters; `logo_chars` `blocks` (half blocks, two pixels per character, best for pixel art) or `ascii`; `logo_colors` `image` (its own colors) or `palette` (its light and dark in the palette's colors, so it follows the theme and livery). GIF frames play at their own speed | `40`, `blocks`, `image` |
+| `logo` | `auto`, `windows`, `tux`, `none`, `image` (see below), `custom` (your own ASCII art from `logo.txt` next to `termwall.toml`: up to 40 lines, `$1` accent, `$2` secondary, `$3` text, `$4` dim switch the color), or any of fastfetch's 540 logos by id (`arch` on Windows works; `termwall logos` lists them, `termwall logos mac` finds the macOS ones, `termwall logos apple` shows one in the terminal) | `auto` |
+| `logo_width`, `logo_chars`, `logo_colors` | with `logo = "image"`: a picture or an animated GIF (`logo.gif`, `.png`, `.jpg` or `.webp` next to `termwall.toml`, up to 8 MB) turned into text. `logo_width` 12-120 characters; `logo_chars` `blocks` (half blocks, two pixels per character, best for pixel art) or `ascii`; GIF frames play at their own speed | `40`, `blocks` |
+| `logo_colors` | the logo's colors, separate from the rest of the screen (theme, livery and `colors` don't change): `own` (fastfetch's own colors, so `apple` is a rainbow; a picture's own), `palette` (the palette's; a picture's light and dark turned into it), a list of up to nine `#rrggbb` for `$1`, `$2`... of a text logo (`["#e05252", "#5fb85f"]`, or `termwall --style logo_colors "#e05252,#5fb85f"`), `auto` (a picture in its own colors, text logos in the palette; `image` is the same) | `auto` |
 | `prompt_color` | `text`, `accent`, `secondary`, `dim`: the color of the command in the prompt line | `text` |
 | `font` | `cascadia` (comes with Windows 11), `jetbrains`, `fira`, `iosevka` (these three come with termwall), `consolas`, `system` (the browser's monospace) | `cascadia` |
 | `scale` | `0.8` to `1.1`: smaller fits more, larger makes everything bigger | `1.0` |
@@ -280,7 +281,8 @@ publishes the release. `tools\fetch_logos.py` rebuilds `logos.js`.
 
 **Demo mode**: `index.html?demo` (made-up stats, no server) takes the look's settings in the
 URL (`&layout=htop&effects=crt`), a palette (`&bg=…&accent=…`, all six, hex without `#`),
-`&distro=arch` or `&distro=cycle` (every logo, five seconds each).
+`&distro=arch` or `&distro=cycle` (the 25 featured logos and Windows, five seconds each);
+`&logo=apple&logo_colors=own` for any logo.
 
 ## Linux (experimental)
 
@@ -315,8 +317,8 @@ the stats server as a systemd user service and starts the wallpaper with your se
 others). `bash linux/install.sh --remove` undoes all of it. If another wallpaper covers
 termwall, start it with `--layer bottom`.
 
-The server reads the distro from `/etc/os-release` (about 25 distro logos; derivatives get
-their parent's through `ID_LIKE`, the rest a Tux), the CPU from `/proc/cpuinfo`, the board
+The server reads the distro from `/etc/os-release` (fastfetch's logos, found by `ID` or any
+name fastfetch knows; derivatives get their parent's through `ID_LIKE`, the rest a Tux), the CPU from `/proc/cpuinfo`, the board
 from DMI, and the GPU from nvidia-smi or, without it, from the kernel: Intel (i915, xe)
 utilisation and clock, AMD (amdgpu) utilisation, temperature, power and VRAM.
 
@@ -331,7 +333,8 @@ through makepkg, namcap and pacman to the same screenshot (`bash linux/test/aur.
   logos in `logos.js` are fastfetch's (MIT, Copyright (c) 2021-2023 Linus Dierheimer,
   2022-2026 Carter Li; the full license is at the top of `logos.js`). termwall is not
   affiliated with fastfetch.
-- The Windows logo is fastfetch's `windows_11` shape.
+- The Windows logo is fastfetch's `windows_11` shape. `tools/fetch_logos.py` turns fastfetch's
+  ANSI colors into hex for a dark background (black becomes a dark grey).
 - Bundled fonts in `fonts/`, unmodified, each under the SIL Open Font License 1.1 (license
   next to it): [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (Copyright 2020
   The JetBrains Mono Project Authors), [Fira Code](https://github.com/tonsky/FiraCode)

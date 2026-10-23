@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
@@ -144,8 +144,24 @@ _text.help = "any text up to 60 characters"
 
 def _logo(v):
     import re
-    return v if isinstance(v, str) and re.fullmatch(r"auto|windows|tux|none|custom|image|[a-z0-9-]{1,30}", v) else None
-_logo.help = "auto | windows | tux | none | custom (logo.txt) | image (logo.gif/png/jpg/webp) | a distro id"
+    if not isinstance(v, str) or not re.fullmatch(r"[a-z0-9-]{1,40}", v):
+        return None
+    if v in ("auto", "windows", "tux", "none", "custom", "image"):
+        return v
+    cat = logo_catalog()
+    return v if not cat or v in cat["logos"] or v in cat["aliases"] else None  # no logos.js: can't tell
+_logo.help = ("auto | windows | tux | none | custom (logo.txt) | image (logo.gif/png/jpg/webp) | "
+              "any logo id (termwall logos)")
+
+
+def _logo_colors(v):
+    import re
+    if isinstance(v, str) and "#" in v:
+        v = [x.strip() for x in v.split(",") if x.strip()]
+    if isinstance(v, list):
+        return v if 0 < len(v) <= 9 and all(isinstance(c, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", c) for c in v) else None
+    return v if v in ("auto", "own", "palette", "image") else None
+_logo_colors.help = "auto | own | palette | up to nine #rrggbb for $1, $2... (comma-separated)"
 
 
 def _palette(v):
@@ -166,7 +182,7 @@ STYLE_SPEC = {
     "prompt_color": _choice("text", "accent", "secondary", "dim"),
     "logo_width": _int(12, 120),
     "logo_chars": _choice("blocks", "ascii"),
-    "logo_colors": _choice("image", "palette"),                                    # the prompt's command, "fastfetch --live" by default
+    "logo_colors": _logo_colors,
     "private": _bool,                                   # hide user, computer name and local IP
     "font": _choice(*FONTS),
     "scale": _float(0.8, 1.1),
@@ -176,7 +192,7 @@ STYLE_SPEC = {
 STYLE_DEFAULTS = {"layout": "fetch", "bars": "blocks", "rotate": 0, "theme": "auto", "clock": "24h",
                   "seconds": True, "date": "long", "hide": [], "private": False, "font": "cascadia",
                   "scale": 1.0, "effects": [], "logo": "auto", "prompt_color": "text",
-                  "logo_width": 40, "logo_chars": "blocks", "logo_colors": "image"}
+                  "logo_width": 40, "logo_chars": "blocks", "logo_colors": "auto"}
 
 
 def clean_style(raw) -> dict:
@@ -352,15 +368,20 @@ STYLE_DOCS = {
                "crt = scanlines and a dark vignette, glow = soft light around text, flicker = a faint\n"
                "unsteady brightness, roll = a slow band rolling down the screen, chroma = red/cyan\n"
                "color fringes, curve = rounded tube corners, noise = film grain",
-    "logo": "The logo. auto = your OS; or any distro's logo whatever the OS; custom = your own,\n"
+    "logo": "The logo. auto = your OS; or any of fastfetch's logos whatever the OS (macOS, ChromeOS,\n"
+            "Windows 95 to 11, the BSDs, hundreds of distros: termwall logos lists them, termwall\n"
+            "logos mac finds the macOS ones, termwall logos macos shows one); custom = your own,\n"
             "from logo.txt next to this file (up to 40 lines; $1 accent, $2 secondary, $3 text,\n"
             "$4 dim switch the color from there on; $$ is a $); image = a picture or an animated\n"
             "GIF turned into text: logo.gif, .png, .jpg or .webp next to this file",
     "logo_width": "logo = image: how many characters wide",
     "logo_chars": "logo = image: blocks = half blocks, two pixels per character (best for pixel art);\n"
                   "ascii = characters from light to dense",
-    "logo_colors": "logo = image: image = the picture's own colors; palette = its light and dark\n"
-                   "turned into the palette's colors (follows the theme and livery)",
+    "logo_colors": "The logo's colors, apart from the rest of the screen (theme, livery and \"colors\"\n"
+                   "stay as they are). own = the logo's own: fastfetch's (a rainbow apple for\n"
+                   "\"apple\"), a picture's; palette = the palette's (a picture's light and dark\n"
+                   "turned into it); a list = your own colors for $1, $2... of a text logo,\n"
+                   "e.g. [\"#e05252\", \"#5fb85f\"]; auto = a picture in its own, text logos in the palette",
 }
 STYLE_DOCS["font"] = ("The font. cascadia comes with Windows 11; jetbrains, fira and iosevka come with termwall;\n"
             "consolas and system (the browser's monospace) are always there")
@@ -382,17 +403,72 @@ def _toml_value(v) -> str:
     raise TypeError(type(v))
 
 
-def distro_ids(path: str | None = None) -> list[str]:
-    """The distro logos termwall has, from logos.js next to the page."""
-    import re
+_catalog_cache: dict = {}
+
+
+def logo_catalog(path: str | None = None) -> dict:
+    """The logos termwall has (fastfetch's, from logos.js next to the page): {"logos": id -> text,
+    "own": id -> colors, "names": id -> fastfetch's names, "aliases": name -> id, "featured": [ids]}.
+    Empty when logos.js can't be read."""
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "logos.js")
     try:
-        with open(path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "logos.js"), encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        return []
-    start = text.find("window.DISTRO_LOGOS")
-    end = text.find("window.DISTRO_COLORS", start)
-    return re.findall(r'"([a-z0-9_-]+)":\[\[\[', text[start:end if end > 0 else len(text)]) if start >= 0 else []
+        mtime = os.stat(path).st_mtime_ns
+        if _catalog_cache.get("key") != (path, mtime):
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            dec, out = json.JSONDecoder(), {}
+            for name, var in (("logos", "DISTRO_LOGOS"), ("own", "LOGO_OWN_COLORS"), ("names", "LOGO_NAMES"),
+                              ("aliases", "LOGO_ALIASES"), ("featured", "LOGO_FEATURED")):
+                i = text.find(f"window.{var} = ")
+                out[name] = dec.raw_decode(text, i + len(f"window.{var} = "))[0] if i >= 0 else {}
+            _catalog_cache.update(key=(path, mtime), data=out)
+        return _catalog_cache["data"]
+    except (OSError, ValueError):
+        return {}
+
+
+def distro_ids(path: str | None = None) -> list[str]:
+    """The ids of the logos termwall has."""
+    return list(logo_catalog(path).get("logos", {}))
+
+
+def logo_slug(name: str) -> str:
+    import re
+    import unicodedata
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", plain.lower()).strip("-")
+
+
+def find_logos(words: list[str], path: str | None = None) -> list[str]:
+    """termwall logos WORD...: the ids whose id or fastfetch names contain every word."""
+    cat = logo_catalog(path)
+    words = [logo_slug(w) for w in words if logo_slug(w)]
+    hay = {k: " ".join([k, *map(logo_slug, cat["names"].get(k, []))]) for k in cat.get("logos", {})}
+    return [k for k, h in hay.items() if all(w in h for w in words)]
+
+
+def logo_preview(key: str, path: str | None = None) -> str:
+    """One logo in this terminal, in its own colors (24-bit ANSI)."""
+    cat = logo_catalog(path)
+    own = cat["own"].get(key) or []
+    def sgr(n):
+        c = own[n - 1] if 0 < n <= len(own) else None
+        return f"\x1b[38;2;{int(c[1:3], 16)};{int(c[3:5], 16)};{int(c[5:7], 16)}m" if c else "\x1b[39m"
+    out, cur = [], 1
+    for line in cat["logos"][key].split("\n"):
+        s, i = sgr(cur), 0
+        while i < len(line):
+            if line[i] == "$" and i + 1 < len(line) and line[i + 1] in "123456789":
+                cur = int(line[i + 1])
+                s += sgr(cur)
+                i += 2
+                continue
+            if line.startswith("$$", i):
+                i += 1
+            s += line[i]
+            i += 1
+        out.append(s + "\x1b[0m")
+    return "\n".join(out)
 
 
 def _wrapped(prefix: str, words: list[str], width: int = 92) -> list[str]:
@@ -439,8 +515,10 @@ def render_config(cur: dict) -> str:
                 out.append("# choices: auto, logo, distro, " + ", ".join(list(THEMES)[:5]) + ",")
                 out.append("#          " + ", ".join(list(THEMES)[5:]) + "   default: \"auto\"")
             elif k == "logo":
-                out.append('# choices: auto | windows | tux | none | custom | image | a distro:   default: "auto"')
-                out += _wrapped("#   ", distro_ids())
+                out.append('# choices: auto | windows | tux | none | custom | image | a logo id:   default: "auto"')
+                cat = logo_catalog()
+                out += _wrapped("#   ", list(cat.get("featured", [])) + [
+                    f"... {len(cat.get('logos', {}))} in all: termwall logos"])
             elif k != "prompt":
                 choices = "true | false" if check is _bool else check.help
                 out.append(f"# choices: {choices}   default: {_toml_value(CONFIG_DEFAULTS[k])}")
@@ -2189,9 +2267,27 @@ def selftest() -> int:
     check(a and a["name"] == "termwall-setup-9.9.9.exe" and a["sha256"] == "ab" * 32, "update: the installer asset and its sha256")
     check(pick_installer({"assets": []}) is None, "update: no installer in a release -> none")
     ids = distro_ids()
-    check("arch" in ids and "nixos" in ids and len(ids) >= 20, "the distro list comes from logos.js")
-    check(all(f"#   {x}" in render_config({}) or f", {x}" in render_config({}) for x in ("arch", "mx")),
-          "termwall.toml lists the distros")
+    check("arch" in ids and "nixos" in ids and len(ids) >= 500, "the logo list comes from logos.js")
+    cfg = render_config({})
+    check(all(f"#   {x}" in cfg or f", {x}" in cfg for x in ("arch", "mx")) and "macos2" not in cfg
+          and "termwall logos" in cfg, "termwall.toml names the featured logos, not all of them")
+    cat = logo_catalog()
+    check(len(cat["own"]["macos"]) == 6 and all(c and c.startswith("#") for c in cat["own"]["macos"]),
+          "macOS keeps its six colors")
+    check(all(k in cat["logos"] for k in ("chromeos", "windows-7", "windows-95", "windows-11", "freebsd", "haiku")),
+          "logos beyond Linux: ChromeOS, Windows, BSD, Haiku")
+    check(cat["aliases"].get("sunos") == "solaris" and "windows" not in cat["logos"],
+          "fastfetch's other names are aliases; termwall's own windows logo keeps its id")
+    check(_logo("macos") == "macos" and _logo("sunos") == "sunos" and _logo("no-such-os") is None,
+          "logo: a known id or alias, an unknown one refused")
+    check(find_logos(["mac"])[:1] == ["macos"] or "macos" in find_logos(["mac"]), "termwall logos mac finds macOS")
+    check(find_logos(["windows", "95"]) == ["windows-95"], "every word has to match")
+    check("\x1b[38;2;" in logo_preview("apple") and "$1" not in logo_preview("apple"),
+          "a preview in the logo's own colors, without the $N")
+    check(_logo_colors("own") == "own" and _logo_colors("image") == "image"
+          and _logo_colors("#e05252, #5fb85f") == ["#e05252", "#5fb85f"]
+          and _logo_colors(["#e05252"]) == ["#e05252"] and _logo_colors(["red"]) is None
+          and _logo_colors(["#000000"] * 10) is None, "logo_colors: a mode or up to nine colors")
     check(resolve_palette({"theme": "logo"}, os.path.join(tempfile.gettempdir(), "no-such-theme.json")) is None,
           "theme logo: the page colors itself")
     check(resolve_palette({"theme": "distro"}, os.path.join(tempfile.gettempdir(), "no-such-theme.json")) is None,
@@ -2281,6 +2377,8 @@ USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall
   termwall --style               every setting, its value and its choices
   termwall --style KEY VALUE     change one (KEY default: remove it, --style reset: all)
   termwall --theme NAME          a built-in palette (termwall --themes lists them)
+  termwall logos [WORD...]       the logos (fastfetch's), or those matching: termwall logos mac
+  termwall logos ID              show one in its own colors; termwall --style logo ID uses it
   termwall --once                print one sample
   termwall --selftest            run the self-test
   termwall --link-we | --unlink-we | --link-lively | --unlink-lively
@@ -2343,9 +2441,32 @@ def theme_overrides(style_path: str | None = None, theme_path: str | None = None
     return {k: v for k, v in sw.items() if own.get(k) != v}
 
 
+def cmd_logos(args: list[str]) -> int:
+    """termwall logos [WORD... | ID]: list or find logos; an exact id shows it."""
+    cat = logo_catalog()
+    if not cat.get("logos"):
+        print("logos.js is missing next to termwall_api.py")
+        return 1
+    if len(args) == 1 and (args[0] in cat["logos"] or args[0] in cat["aliases"]):
+        key = cat["aliases"].get(args[0], args[0])
+        print(logo_preview(key))
+        print(f"\n{key}  ({', '.join(cat['names'].get(key, []))})   use it: termwall --style logo {key}")
+        print("its own colors: termwall --style logo_colors own")
+        return 0
+    found = find_logos(args) if args else list(cat["logos"])
+    if not found:
+        print(f"no logo matches {' '.join(args)!r}; termwall logos lists them all")
+        return 1
+    width = max(len(k) for k in found) + 2
+    for k in found:
+        print(f"  {k:{width}}{', '.join(cat['names'].get(k, []))[:70]}")
+    print(f"{len(found)} logo(s). termwall logos ID shows one; termwall --style logo ID uses it")
+    return 0
+
+
 # termwall config / check / reset ... without the dashes
 WORDS = {"config": "--config", "check": "--check", "style": "--style", "theme": "--theme", "themes": "--themes",
-         "version": "--version", "stop": "--stop", "once": "--once", "selftest": "--selftest",
+         "logos": "--logos", "version": "--version", "stop": "--stop", "once": "--once", "selftest": "--selftest",
          "share": "--share", "update": "--update"}
 
 
@@ -2364,7 +2485,7 @@ if __name__ == "__main__":
         sys.exit(0)
     unknown = [a for a in sys.argv[1:2] if a not in (
         "--selftest", "--version", "--link-we", "--unlink-we", "--link-lively", "--unlink-lively", "--stop",
-        "--themes", "--theme", "--style", "--once", "--config", "--check", "--share", "--update")]
+        "--themes", "--theme", "--logos", "--style", "--once", "--config", "--check", "--share", "--update")]
     if unknown:
         sys.exit(f"unknown option {unknown[0]}\n\n{USAGE}")
     if "--selftest" in sys.argv:
@@ -2420,6 +2541,8 @@ if __name__ == "__main__":
             print(f"  {name:12} {t['bg']} {t['accent']} {t['secondary']}")
         print("  termwall --theme NAME   (auto = the distro's colors on Linux, mint on Windows)")
         sys.exit(0)
+    if "--logos" in sys.argv:
+        sys.exit(cmd_logos(sys.argv[sys.argv.index("--logos") + 1:]))
     if "--theme" in sys.argv:
         rest = sys.argv[sys.argv.index("--theme") + 1:]
         try:

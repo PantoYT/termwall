@@ -421,6 +421,7 @@ const URLQ = new URLSearchParams(location.search);
 // ?layout=htop&hide=gpu,procs&effects=crt&font=jetbrains&clock=12h... (handy in a browser; wins over the files)
 const URL_STYLE = {};
 for (const k of ["layout", "bars", "clock", "date", "font", "logo", "prompt", "logo_chars", "logo_colors"]) if (URLQ.get(k) !== null) URL_STYLE[k] = URLQ.get(k);
+if (/#/.test(URL_STYLE.logo_colors || "")) URL_STYLE.logo_colors = URL_STYLE.logo_colors.split(",");  // ?logo_colors=%23e05252,%235fb85f
 if (URLQ.get("logo_width")) URL_STYLE.logo_width = Number(URLQ.get("logo_width"));
 for (const k of ["hide", "effects"]) if (URLQ.get(k) !== null) URL_STYLE[k] = URLQ.get(k).split(",").filter(Boolean);
 for (const k of ["seconds", "private"]) if (URLQ.get(k) !== null) URL_STYLE[k] = ["on", "1", "true"].includes(URLQ.get(k));
@@ -466,41 +467,48 @@ function showLayout(){
 }
 
 // ── logos: fastfetch's Windows panes, a Tux for Linux ──
-const WIN_LOGO = (() => {
-  const w = 17, h = 8, pane = "/".repeat(w), gap = "  ";
-  const line = c => `<span class="${c}">${pane}</span>${gap}<span class="${c}">${pane}</span>`;
-  const rows = [];
-  for (let i = 0; i < h; i++) rows.push(line("k"));
-  rows.push("");
-  for (let i = 0; i < h; i++) rows.push(line("t"));
-  return rows.join("\n");
+// both as logo text: $1 / $2 switch the color (see logoHtml)
+const WIN_TEXT = (() => {
+  const pane = "/".repeat(17), line = pane + "  " + pane;
+  return ["$1" + line, ...Array(7).fill(line), "", "$2" + line, ...Array(7).fill(line)].join("\n");
 })();
-const TUX = [
-  ["k", "        #####"], ["k", "       #######"], ["k", "       ##O#O##"], ["k", "       #VVVVV#"],
-  ["k", "     ##  VVV  ##"], ["t", "    #          ##"], ["t", "   #            ##"], ["t", "   #            ###"],
-  ["t", "  QQ#           ##Q"], ["t", "QQQQQQ#       #QQQQQQ"], ["t", "QQQQQQQ#     #QQQQQQQ"],
-  ["t", "  QQQQQ#######QQQQQ"]].map(([c, l]) => `<span class="${c}">${l}</span>`).join("\n");
+const TUX_TEXT = ["$1        #####", "       #######", "       ##O#O##", "       #VVVVV#", "     ##  VVV  ##",
+  "$2    #          ##", "   #            ##", "   #            ###", "  QQ#           ##Q",
+  "QQQQQQ#       #QQQQQQ", "QQQQQQQ#     #QQQQQQQ", "  QQQQQ#######QQQQQ"].join("\n");
 
 const gib = b => (b/1024**3).toFixed(b >= 100*1024**3 ? 0 : 2) + " GiB";
 const rate = b => b >= 1024**2 ? (b/1024**2).toFixed(1)+" MiB/s" : (b/1024).toFixed(0)+" KiB/s";
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-// Distro logos: fastfetch's, from logos.js (tools/fetch_logos.py). Chosen by os-release ID,
-// then ID_LIKE (an Arch derivative without its own logo gets Arch's), else the Tux.
+// Logos: all of fastfetch's, from logos.js (tools/fetch_logos.py). On Linux chosen by os-release
+// ID, then ID_LIKE (an Arch derivative without its own logo gets Arch's), else the Tux.
 const DISTRO_LOGOS = window.DISTRO_LOGOS || {};
 const DISTRO_COLORS = window.DISTRO_COLORS || {};
-function distroId(s){
-  const ids = [s.distro || "", ...String(s.distro_like || "").split(/[ ]+/)];
-  return ids.find(i => DISTRO_LOGOS[i]) || null;
+const LOGO_OWN = window.LOGO_OWN_COLORS || {}, LOGO_ALIASES = window.LOGO_ALIASES || {};
+// an id or another name for it (fastfetch's, an os-release ID) -> the id, or null
+function logoId(name){
+  const k = String(name || "").toLowerCase();
+  if (DISTRO_LOGOS[k]) return k;
+  const slug = k.normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return DISTRO_LOGOS[slug] ? slug : LOGO_ALIASES[slug] || null;
 }
-// logo.txt: $1 accent, $2 secondary, $3 text, $4 dim from there on; $$ = a $
-function customLogo(text){
-  const cls = {"1": "k", "2": "t", "3": "g", "4": "d"};
-  let cur = "k", out = "";
+function distroId(s){
+  if (s.os_family === "darwin") return "macos";
+  const ids = [s.distro || "", ...String(s.distro_like || "").split(/[ ]+/)];
+  for (const i of ids) { const id = i && logoId(i); if (id) return id; }
+  return null;
+}
+// logo text -> html. $1, $2... switch the color from there on, $$ = a $. own: a color per $N
+// (null = the text color); else the palette: roles[N], anything past them the text color.
+const FF_ROLES = {"1": "k", "2": "t"}, CUSTOM_ROLES = {"1": "k", "2": "t", "3": "g", "4": "d"};
+function logoHtml(text, own, roles = FF_ROLES){
+  const open = n => { const c = own ? own[n - 1] : null;
+    return own && /^#[0-9a-f]{6}$/i.test(c || "") ? `<span style="color:${c}">` : `<span class="${own ? "g" : roles[n] || "g"}">`; };
+  let cur = 1, out = "";
   for (const line of text.split("\n")) {
-    let html = `<span class="${cur}">`;
+    let html = open(cur);
     for (let i = 0; i < line.length; i++) {
-      if (line[i] === "$" && cls[line[i + 1]]) { cur = cls[line[++i]]; html += `</span><span class="${cur}">`; }
+      if (line[i] === "$" && /[1-9]/.test(line[i + 1] || "")) { cur = Number(line[++i]); html += "</span>" + open(cur); }
       else if (line[i] === "$" && line[i + 1] === "$") { html += "$"; i++; }
       else html += esc(line[i]);
     }
@@ -508,14 +516,21 @@ function customLogo(text){
   }
   return out;
 }
-function linuxLogo(s){
-  const id = distroId(s);
-  if (!id) return TUX;
-  return DISTRO_LOGOS[id].map(runs => runs.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join("")).join("\n");
+// logo_colors: "own" = the logo's own colors, "palette" = the palette's, a list = those for $1, $2...;
+// "auto" (or the older "image"): a picture in its own colors, text logos in the palette
+function ownColors(id){
+  const lc = style.logo_colors;
+  if (Array.isArray(lc)) return lc;
+  return lc === "own" && id ? LOGO_OWN[id] || null : null;
 }
+const WIN_LOGO = () => logoHtml(WIN_TEXT, ownColors("windows-11"));
+const TUX = () => logoHtml(TUX_TEXT, Array.isArray(style.logo_colors) ? style.logo_colors : null);
+const customLogo = text => logoHtml(text, Array.isArray(style.logo_colors) ? style.logo_colors : null, CUSTOM_ROLES);
+function fetchLogo(id){ return id ? logoHtml(DISTRO_LOGOS[id], ownColors(id)) : TUX(); }
+function linuxLogo(s){ return fetchLogo(distroId(s)); }
 // a full six-role palette around the distro's two colors, on termwall's dark background
 // the distro whose colors go with the logo: a picked one (logo = "arch"), else the system's
-function logoDistro(s){ return DISTRO_LOGOS[style.logo] ? style.logo : distroId(s); }
+function logoDistro(s){ return logoId(style.logo) || distroId(s); }
 function distroTheme(s){
   const id = logoDistro(s);
   if (!id || !DISTRO_COLORS[id]) return null;
@@ -716,17 +731,17 @@ function fitBigLogo(){
 function pickLogo(s){
   const want = style.logo || "auto";
   if (want !== "image" && IMG.key) { clearTimeout(IMG.timer); IMG.key = null; IMG.frames = []; IMG.palette = null; }
-  if (want === "windows") return WIN_LOGO;
-  if (want === "tux") return TUX;
-  if (want === "custom") return s.logo_text ? customLogo(s.logo_text) : TUX;
+  if (want === "windows") return WIN_LOGO();
+  if (want === "tux") return TUX();
+  if (want === "custom") return s.logo_text ? customLogo(s.logo_text) : TUX();
   if (want === "image") {
     const url = imageLogoUrl(s);
-    if (!url) return TUX;
+    if (!url) return TUX();
     loadImageLogo(url, Math.max(12, Math.min(120, Number(style.logo_width) || 40)), style.logo_chars === "ascii" ? "ascii" : "blocks");
-    return IMG.failed ? TUX : imageLogoHtml();  // can't be read: the penguin, not a hole
+    return IMG.failed ? TUX() : imageLogoHtml();  // can't be read: the penguin, not a hole
   }
-  if (want !== "auto" && want !== "none") return DISTRO_LOGOS[want] ? linuxLogo({distro: want}) : TUX;
-  return s.os_family === "linux" ? linuxLogo(s) : WIN_LOGO;
+  if (want !== "auto" && want !== "none") return fetchLogo(logoId(want));
+  return s.os_family === "windows" ? WIN_LOGO() : linuxLogo(s);
 }
 function meter(label, p, n, text){
   const f = Math.round(Math.max(0, Math.min(100, p)) / 100 * n);
@@ -750,11 +765,12 @@ function render(s){
     ? `<span class="k">${esc(s.user)}@${esc(s.host)}</span>:<span class="path">~</span><span class="arrow">$</span> ${cmd} <span class="cursor"></span>`
     : `<span class="t">PS</span> <span class="path">C:\\Users\\${esc(s.user)}</span><span class="arrow">&gt;</span> ${cmd} <span class="cursor"></span>`);
   put("logo", pickLogo(s));
-  // a tall distro logo (fastfetch's run to 20 rows) shrinks to the Windows logo's height
+  // a tall or wide logo (fastfetch's run to 20 rows, some to 70 columns) shrinks to the Windows logo's size
   document.querySelectorAll('[data-p="logo"]').forEach(el => {
-    const rows = el.textContent.split("\n").length;
+    const lines = el.textContent.split("\n"), rows = lines.length, cols = Math.max(...lines.map(l => l.length));
+    const k = Math.min(17 / rows, 40 / cols, 1);
     el.classList.toggle("img", style.logo === "image");
-    el.style.fontSize = style.logo === "image" ? "" : rows > 17 ? `${Math.max(12, Math.floor(17 * 17 / rows))}px` : "";
+    el.style.fontSize = style.logo === "image" || k === 1 ? "" : `${Math.max(9, Math.floor(17 * k))}px`;
   });
   put("sep", "-".repeat((s.user + "@" + s.host).length));
   put("swatches", ["var(--bg);outline:1px solid var(--dim)", "var(--grey)", "var(--teal)", "var(--mint)", "var(--dim)", "var(--faint)"]
@@ -886,7 +902,7 @@ async function poll(){
 function demoDistro(){
   const want = URLQ.get("distro");
   if (want !== "cycle") return want;
-  const all = ["windows", ...Object.keys(window.DISTRO_LOGOS || {})];
+  const all = ["windows", ...(window.LOGO_FEATURED || Object.keys(DISTRO_LOGOS))];
   const pick = all[Math.floor(Date.now() / 5000) % all.length];
   return pick === "windows" ? null : pick;
 }
