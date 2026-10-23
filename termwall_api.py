@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
@@ -372,7 +372,8 @@ STYLE_DOCS = {
             "Windows 95 to 11, the BSDs, hundreds of distros: termwall logos lists them, termwall\n"
             "logos mac finds the macOS ones, termwall logos macos shows one); custom = your own,\n"
             "from logo.txt next to this file (up to 40 lines; $1 accent, $2 secondary, $3 text,\n"
-            "$4 dim switch the color from there on; $$ is a $); image = a picture or an animated\n"
+            "$4 dim switch the color from there on; $$ is a $; termwall logo-from PICTURE makes one,\n"
+            "its colors going to logo_colors); image = a picture or an animated\n"
             "GIF turned into text: logo.gif, .png, .jpg or .webp next to this file",
     "logo_width": "logo = image: how many characters wide",
     "logo_chars": "logo = image: blocks = half blocks, two pixels per character (best for pixel art);\n"
@@ -450,12 +451,16 @@ def find_logos(words: list[str], path: str | None = None) -> list[str]:
 def logo_preview(key: str, path: str | None = None) -> str:
     """One logo in this terminal, in its own colors (24-bit ANSI)."""
     cat = logo_catalog(path)
-    own = cat["own"].get(key) or []
+    return ansi_logo(cat["logos"][key], cat["own"].get(key) or [])
+
+
+def ansi_logo(text: str, own: list) -> str:
+    """Logo text ($1..$9, $$) -> 24-bit ANSI with these colors for $1, $2... (None = the terminal's)."""
     def sgr(n):
         c = own[n - 1] if 0 < n <= len(own) else None
         return f"\x1b[38;2;{int(c[1:3], 16)};{int(c[3:5], 16)};{int(c[5:7], 16)}m" if c else "\x1b[39m"
     out, cur = [], 1
-    for line in cat["logos"][key].split("\n"):
+    for line in text.split("\n"):
         s, i = sgr(cur), 0
         while i < len(line):
             if line[i] == "$" and i + 1 < len(line) and line[i + 1] in "123456789":
@@ -469,6 +474,311 @@ def logo_preview(key: str, path: str | None = None) -> str:
             i += 1
         out.append(s + "\x1b[0m")
     return "\n".join(out)
+
+
+# --- termwall logo-from PICTURE: a picture -> logo.txt ($1..$9) and its colors ---
+
+def read_png(data: bytes) -> tuple[int, int, list]:
+    """A PNG -> (width, height, rows of (r, g, b, a)). Every color type and bit depth, not interlaced."""
+    import struct
+    import zlib
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG")
+    pos, idat, plte, trns, hdr = 8, b"", b"", b"", None
+    while pos + 8 <= len(data):
+        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        pos += 12 + n
+        if kind == b"IHDR":
+            hdr = struct.unpack(">IIBBBBB", body)
+        elif kind == b"PLTE":
+            plte = body
+        elif kind == b"tRNS":
+            trns = body
+        elif kind == b"IDAT":
+            idat += body
+        elif kind == b"IEND":
+            break
+    if not hdr:
+        raise ValueError("a PNG without a header")
+    w, h, depth, ctype, _, _, interlace = hdr
+    if interlace:
+        raise ValueError("an interlaced PNG: save it again without interlacing")
+    chans = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ctype]
+    bpp = max(1, chans * depth // 8)
+    stride = (w * chans * depth + 7) // 8
+    raw, rows, prev = zlib.decompress(idat), [], bytearray(stride)
+    for y in range(h):
+        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            a = line[i - bpp] if i >= bpp else 0
+            b, c = prev[i], prev[i - bpp] if i >= bpp else 0
+            if f == 1:
+                line[i] = (line[i] + a) & 255
+            elif f == 2:
+                line[i] = (line[i] + b) & 255
+            elif f == 3:
+                line[i] = (line[i] + (a + b) // 2) & 255
+            elif f == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        prev = line
+        if depth == 16:
+            vals = list(line[0::2])
+        elif depth == 8:
+            vals = list(line)
+        else:  # 1, 2, 4 bits: unpack, then scale gray to 0-255 (palette indices stay)
+            per, mask = 8 // depth, (1 << depth) - 1
+            vals = [(byte >> (8 - depth * (k + 1))) & mask for byte in line for k in range(per)][:w * chans]
+            if ctype == 0:
+                vals = [v * 255 // mask for v in vals]
+        px = []
+        for x in range(w):
+            v = vals[x * chans:(x + 1) * chans]
+            if ctype == 3:
+                r, g, b = plte[v[0] * 3:v[0] * 3 + 3]
+                px.append((r, g, b, trns[v[0]] if v[0] < len(trns) else 255))
+            elif ctype == 0:
+                px.append((v[0], v[0], v[0], 255))
+            elif ctype == 4:
+                px.append((v[0], v[0], v[0], v[1]))
+            elif ctype == 2:
+                px.append((v[0], v[1], v[2], 255))
+            else:
+                px.append(tuple(v))
+        rows.append(px)
+    return w, h, rows
+
+
+def read_picture(path: str) -> tuple[int, int, list]:
+    """PNG with the standard library; GIF (first frame), JPEG, WebP, BMP... with Pillow if it's there."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return read_png(data)
+    try:
+        from PIL import Image
+    except ImportError:
+        raise ValueError("termwall reads PNG by itself; for other formats save it as PNG, "
+                         "or install Pillow (pip install pillow)") from None
+    import io
+    im = Image.open(io.BytesIO(data)).convert("RGBA")
+    raw, w = im.tobytes(), im.width
+    return w, im.height, [[tuple(raw[(y * w + x) * 4:(y * w + x) * 4 + 4]) for x in range(w)] for y in range(im.height)]
+
+
+def _shrink(w: int, h: int, rows: list, cols: int, out_rows: int) -> list:
+    """Area-average down to cols x out_rows (alpha-weighted); pixel art picks the nearest pixel."""
+    sharp = w <= cols * 2
+    out = []
+    for oy in range(out_rows):
+        y0, y1 = oy * h // out_rows, max(oy * h // out_rows + 1, (oy + 1) * h // out_rows)
+        line = []
+        for ox in range(cols):
+            x0, x1 = ox * w // cols, max(ox * w // cols + 1, (ox + 1) * w // cols)
+            if sharp:
+                line.append(rows[min(h - 1, (y0 + y1) // 2)][min(w - 1, (x0 + x1) // 2)])
+                continue
+            r = g = b = a = 0
+            n = 0
+            for y in range(y0, y1):
+                for p in rows[y][x0:x1]:
+                    r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; a += p[3]; n += 1
+            line.append((r // a, g // a, b // a, a // n) if a else (0, 0, 0, 0))
+        out.append(line)
+    return out
+
+
+def _drop_background(rows: list, tol: int = 40) -> tuple[list, tuple | None]:
+    """A picture with no transparency: the color around its border, flooded in from the edges,
+    becomes transparent (a logo on a white square loses the square, not its own white).
+    Returns the rows and that color (None: nothing dropped)."""
+    h, w = len(rows), len(rows[0])
+    if any(p[3] < 255 for line in rows for p in line):
+        return rows, None
+    border = [rows[y][x] for y in (0, h - 1) for x in range(w)] + [rows[y][x] for x in (0, w - 1) for y in range(h)]
+    bg = max(set(border), key=border.count)
+    if border.count(bg) < len(border) * 0.6:
+        return rows, None  # no single background color: keep the whole picture
+    near = lambda p: sum(abs(p[i] - bg[i]) for i in range(3)) <= tol
+    rows = [list(line) for line in rows]
+    todo = [(x, y) for x in range(w) for y in (0, h - 1)] + [(x, y) for x in (0, w - 1) for y in range(h)]
+    while todo:
+        x, y = todo.pop()
+        if 0 <= x < w and 0 <= y < h and rows[y][x][3] and near(rows[y][x]):
+            rows[y][x] = (0, 0, 0, 0)
+            todo += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+    return rows, bg[:3]
+
+
+def _seg_d2(c, a, b) -> float:
+    """Squared distance from color c to the line between colors a and b (a == b: to a)."""
+    ab = [b[i] - a[i] for i in range(3)]
+    ac = [c[i] - a[i] for i in range(3)]
+    n = sum(x * x for x in ab)
+    t = max(0.0, min(1.0, sum(ab[i] * ac[i] for i in range(3)) / n)) if n else 0.0
+    return sum((ac[i] - t * ab[i]) ** 2 for i in range(3))
+
+
+def _quantize(pixels: list, k: int, bg: tuple | None = None) -> list:
+    """Up to k colors for these pixels (k-means from the most common color outwards), the most
+    used first; close ones are merged. bg: a dropped background, so its blend into the edges goes too."""
+    hist: dict = {}
+    for p in pixels:
+        q = (p[0] >> 3 << 3 | 4, p[1] >> 3 << 3 | 4, p[2] >> 3 << 3 | 4)
+        hist[q] = hist.get(q, 0) + 1
+    if not hist:
+        return []
+    d2 = lambda a, b: (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2
+    cents = [max(hist, key=hist.get)]
+    while len(cents) < min(k, len(hist)):
+        cents.append(max(hist, key=lambda c: hist[c] ** 0.5 * min(d2(c, x) for x in cents)))
+    total = sum(hist.values())
+    for step in range(14):
+        sums = [[0, 0, 0, 0] for _ in cents]
+        for c, n in hist.items():
+            s = sums[min(range(len(cents)), key=lambda i: d2(c, cents[i]))]
+            s[0] += c[0] * n; s[1] += c[1] * n; s[2] += c[2] * n; s[3] += n
+        cents = [(s[0] // s[3], s[1] // s[3], s[2] // s[3], s[3]) for s in sums if s[3]]
+        if step == 7:  # a color (under a fifth of the picture) that mixes two bigger ones is an edge blend: dropped,
+            cents.sort(key=lambda c: -c[3])  # its pixels go to those (a small white eye stays)
+            keep = []
+            for c in cents:
+                ends = keep + ([bg] if bg else [])
+                inner_bg = bg is not None and _seg_d2(c, bg, bg) < 28 ** 2  # the background's color inside: a detail
+                if c[3] >= total * 0.2 or inner_bg or not any(_seg_d2(c, a, b) < 28 ** 2 for a in ends for b in ends):
+                    keep.append(c)
+            cents = keep
+        counts = [c[3] for c in cents]
+        cents = [c[:3] for c in cents]
+    merged: list = []
+    for c, n in sorted(zip(cents, counts), key=lambda x: -x[1]):
+        if all(d2(c, m) > 24 ** 2 for m in merged):
+            merged.append(c)
+    return merged
+
+
+def picture_logo(path: str, width: int = 40, chars: str = "blocks", colors: int = 9,
+                 keep_bg: bool = False) -> tuple[str, list[str]]:
+    """A picture -> (logo text with $1..$N, ["#rrggbb" for $1..$N]), at most 120 x 40 characters.
+    blocks: half blocks, two pixels a character, one color each (logo.txt has no background color,
+    so where the two pixels differ the rarer one wins: lines and highlights survive a fill);
+    ascii: characters from light to dense."""
+    w, h, rows = read_picture(path)
+    width = max(12, min(120, width))
+    per = 2 if chars == "blocks" else 1
+    out_rows = max(1, round(width * h / w * 0.5))
+    if out_rows > 40:  # logo.txt: up to 40 lines
+        width, out_rows = max(4, round(width * 40 / out_rows)), 40
+    if not keep_bg:  # on a 4x bigger copy, so the background's blend into the edges goes with it
+        mid_w, mid_h = min(w, width * 4), min(h, out_rows * per * 4)
+        rows, bg = _drop_background(_shrink(w, h, rows, mid_w, mid_h))
+        w, h = mid_w, mid_h
+    px = _shrink(w, h, rows, width, out_rows * per)
+    ph = len(px)  # specks of up to 3 pixels apart from the rest (sparkles, noise) go
+    on = lambda x, y: 0 <= x < width and 0 <= y < ph and px[y][x][3] >= 128
+    seen: set = set()
+    for y0 in range(ph):
+        for x0 in range(width):
+            if (x0, y0) in seen or not on(x0, y0):
+                continue
+            part, todo = [], [(x0, y0)]
+            seen.add((x0, y0))
+            while todo:
+                x, y = todo.pop()
+                part.append((x, y))
+                for n in ((x + dx, y + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+                    if n not in seen and on(*n):
+                        seen.add(n)
+                        todo.append(n)
+            if len(part) <= 3:
+                for x, y in part:
+                    px[y][x] = (0, 0, 0, 0)
+    solid = [p for line in px for p in line if p[3] >= 128]
+    pal = _quantize(solid, max(1, min(9, colors)), None if keep_bg else bg)
+    if not pal:
+        raise ValueError("the picture is all transparent")
+    nearest: dict = {}
+    def idx(p):
+        if p is None or p[3] < 128:
+            return None
+        key = p[:3]
+        if key not in nearest:
+            nearest[key] = min(range(len(pal)), key=lambda i: sum((p[j] - pal[i][j]) ** 2 for j in range(3)))
+        return nearest[key]
+    sums = [[0, 0, 0, 0] for _ in pal]  # each color: the average of its own pixels, not of the bins
+    for p in solid:
+        s = sums[idx(p)]
+        s[0] += p[0]; s[1] += p[1]; s[2] += p[2]; s[3] += 1
+    final = [(s[0] // s[3], s[1] // s[3], s[2] // s[3]) if s[3] else c for s, c in zip(sums, pal)]
+    use = [0] * len(pal)
+    cells = []
+    for y in range(out_rows):
+        line = []
+        for x in range(width):
+            if chars == "blocks":
+                a, b = idx(px[y * 2][x]), idx(px[y * 2 + 1][x])
+                line.append((a, b))
+                for i in (a, b):
+                    if i is not None:
+                        use[i] += 1
+            else:
+                i = idx(px[y][x])
+                line.append((i, px[y][x]))
+                if i is not None:
+                    use[i] += 1
+        cells.append(line)
+    ramp = " .:-=+*#%@"
+    text_rows = []
+    cur = None
+    for line in cells:
+        s = ""
+        for cell in line:
+            if chars == "blocks":
+                a, b = cell
+                if a is None and b is None:
+                    s += " "
+                    continue
+                if a is not None and b is not None and a != b:
+                    a, b = (a, None) if use[a] <= use[b] else (None, b)
+                i, ch = (a, "█") if a is not None and a == b else (a, "▀") if a is not None else (b, "▄")
+            else:
+                i, p = cell
+                if i is None:
+                    s += " "
+                    continue
+                lum = (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255
+                ch = ramp[min(len(ramp) - 1, int(lum * len(ramp)))]
+                ch = "." if ch == " " else ch
+            if i != cur:
+                s += f"${i + 1}"
+                cur = i
+            s += ch
+        text_rows.append(s.rstrip())
+    while text_rows and not text_rows[-1].strip():
+        text_rows.pop()
+    while text_rows and not text_rows[0].strip():
+        text_rows.pop(0)
+    plain = lambda r: __import__("re").sub(r"\$\d", "", r)
+    margin = min((len(plain(r)) - len(plain(r).lstrip()) for r in text_rows if plain(r).strip()), default=0)
+    if margin:  # a common left margin out; the color switches before it move along
+        trimmed = []
+        for r in text_rows:
+            out, cut, i = "", margin, 0
+            while i < len(r):
+                if r[i] == "$" and i + 1 < len(r) and r[i + 1].isdigit():
+                    out += r[i:i + 2]
+                    i += 2
+                elif cut and r[i] == " ":
+                    cut -= 1
+                    i += 1
+                else:
+                    out += r[i:]
+                    break
+            trimmed.append(out)
+        text_rows = trimmed
+    return "\n".join(text_rows), ["#%02x%02x%02x" % c for c in final]
 
 
 def _wrapped(prefix: str, words: list[str], width: int = 92) -> list[str]:
@@ -2239,6 +2549,49 @@ def selftest() -> int:
         with open(os.path.join(td, "logo.gif"), "wb") as f:
             f.write(b"GIF89a")
         check(os.path.basename(logo_image(td)) == "logo.gif", "logo image: gif first, then png")
+    # logo-from: a red and a blue square, a white dot inside the red one, on a white background
+    W, R, B = (255, 255, 255), (230, 40, 30), (20, 90, 230)
+    pic = [[R if 8 <= x < 28 and 8 <= y < 28 and not (14 <= x < 18 and 14 <= y < 18)
+            else B if 36 <= x < 56 and 8 <= y < 28 else W for x in range(64)] for y in range(36)]
+    with tempfile.TemporaryDirectory() as td:
+        pp = os.path.join(td, "pic.png")
+        with open(pp, "wb") as f:
+            f.write(png(64, 36, pic))
+        w, h, rows = read_picture(pp)
+        check((w, h) == (64, 36) and rows[10][10] == R + (255,) and rows[0][0] == W + (255,), "a PNG read by the stdlib")
+        text, cols = picture_logo(pp, width=32)
+        lines = text.split("\n")
+        check(sorted(cols) == sorted(["#e6281e", "#145ae6", "#ffffff"]),
+              "logo-from: the two squares and the dot inside, the background and its blends gone")
+        check(cols[0] in ("#e6281e", "#145ae6") and "$1" in text and "$2" in text and "$3" in text,
+              "logo-from: the most used color is $1")
+        check(len(lines) == 5 and not lines[0].startswith(" ") and all("█" in x or "▀" in x or "▄" in x for x in lines),
+              "logo-from: the white border trimmed, half blocks")
+        a_text, _ = picture_logo(pp, width=32, chars="ascii")
+        check(set(__import__("re").sub(r"\$\d", "", a_text)) <= set(" .:-=+*#%@\n"), "logo-from --ascii: the ramp")
+        k_text, k_cols = picture_logo(pp, width=32, keep_bg=True)
+        check("#ffffff" in k_cols and len(k_text.split("\n")) == 9, "logo-from --keep-bg keeps the background")
+        tall = os.path.join(td, "tall.png")
+        with open(tall, "wb") as f:
+            f.write(png(10, 400, [[R] * 10 for _ in range(400)]))
+        t_text, _ = picture_logo(tall, width=120, keep_bg=True)
+        check(len(t_text.split("\n")) <= 40, "logo-from: 40 lines at most")
+        check(picture_logo(pp, width=32, colors=1)[1] in (["#e6281e"], ["#145ae6"]) or
+              len(picture_logo(pp, width=32, colors=1)[1]) == 1, "logo-from --colors 1: one color")
+        saved = (globals()["LOGO_FILE"], globals()["STYLE_FILE"])
+        globals()["LOGO_FILE"], globals()["STYLE_FILE"] = os.path.join(td, "logo.txt"), os.path.join(td, "termwall.toml")
+        try:
+            import contextlib
+            import io
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc1 = cmd_logo_from([pp, "--width", "32"])
+                rc2 = cmd_logo_from([pp])
+            st = read_style(os.path.join(td, "termwall.toml"))
+            check(rc1 == 0 and rc2 == 1 and read_logo(os.path.join(td, "logo.txt")) == text
+                  and st.get("logo") == "custom" and st.get("logo_colors") == cols,
+                  "logo-from writes logo.txt, sets logo custom and its colors, won't overwrite without --force")
+        finally:
+            globals()["LOGO_FILE"], globals()["STYLE_FILE"] = saved
     check(clean_style({"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"})
           == {"logo": "image", "logo_width": 48, "logo_chars": "ascii", "logo_colors": "palette"}
           and clean_style({"logo_width": 500, "logo_chars": "x"}) == {}, "logo image settings validated")
@@ -2379,6 +2732,10 @@ USAGE = """termwall - a live system-stats wallpaper (github.com/PantoYT/termwall
   termwall --theme NAME          a built-in palette (termwall --themes lists them)
   termwall logos [WORD...]       the logos (fastfetch's), or those matching: termwall logos mac
   termwall logos ID              show one in its own colors; termwall --style logo ID uses it
+  termwall logo-from PICTURE     a picture (PNG; others with Pillow) -> logo.txt with $1..$9, used
+                                 as logo = "custom" with its colors in logo_colors. Options:
+                                 --width N (40), --ascii, --colors N (1-9), --keep-bg,
+                                 --out FILE (write only that file), --force (overwrite logo.txt)
   termwall --once                print one sample
   termwall --selftest            run the self-test
   termwall --link-we | --unlink-we | --link-lively | --unlink-lively
@@ -2464,9 +2821,59 @@ def cmd_logos(args: list[str]) -> int:
     return 0
 
 
+def cmd_logo_from(args: list[str]) -> int:
+    """termwall logo-from PICTURE [--width N] [--ascii] [--colors N] [--keep-bg] [--out FILE] [--force]"""
+    opts = {"--width": "40", "--colors": "9", "--out": None}
+    flags, files, i = set(), [], 0
+    while i < len(args):
+        if args[i] in opts and i + 1 < len(args):
+            opts[args[i]] = args[i + 1]
+            i += 2
+        elif args[i] in ("--ascii", "--keep-bg", "--force"):
+            flags.add(args[i])
+            i += 1
+        elif args[i].startswith("--"):
+            print(f"unknown option {args[i]}\n\n{USAGE}")
+            return 2
+        else:
+            files.append(args[i])
+            i += 1
+    if len(files) != 1 or not opts["--width"].isdigit() or not opts["--colors"].isdigit():
+        print("termwall logo-from PICTURE [--width N] [--ascii] [--colors N] [--keep-bg] [--out FILE] [--force]")
+        return 2
+    try:
+        text, cols = picture_logo(files[0], int(opts["--width"]), "ascii" if "--ascii" in flags else "blocks",
+                                  int(opts["--colors"]), "--keep-bg" in flags)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"error: {files[0]}: {e}")
+        return 1
+    out = opts["--out"] or LOGO_FILE
+    if os.path.exists(out) and not opts["--out"] and "--force" not in flags:
+        print(ansi_logo(text, cols))
+        print(f"\n{out} already exists: --force replaces it, --out FILE writes somewhere else")
+        return 1
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text + "\n")
+    print(ansi_logo(text, cols))
+    print(f"\nwrote {out}: {len(text.splitlines())} lines, {len(cols)} colors")
+    colors_toml = "logo_colors = [" + ", ".join(f'"{c}"' for c in cols) + "]"
+    if opts["--out"]:
+        print(f"its colors: {colors_toml}")
+        return 0
+    try:
+        set_style("logo", "custom")
+        set_style("logo_colors", ",".join(cols))
+    except ValueError as e:
+        print(f"could not change termwall.toml ({e}); set by hand: logo = \"custom\", {colors_toml}")
+        return 1
+    print(f'termwall.toml: logo = "custom", {colors_toml}')
+    return 0
+
+
 # termwall config / check / reset ... without the dashes
 WORDS = {"config": "--config", "check": "--check", "style": "--style", "theme": "--theme", "themes": "--themes",
-         "logos": "--logos", "version": "--version", "stop": "--stop", "once": "--once", "selftest": "--selftest",
+         "logos": "--logos", "logo-from": "--logo-from", "version": "--version", "stop": "--stop", "once": "--once", "selftest": "--selftest",
          "share": "--share", "update": "--update"}
 
 
@@ -2485,7 +2892,7 @@ if __name__ == "__main__":
         sys.exit(0)
     unknown = [a for a in sys.argv[1:2] if a not in (
         "--selftest", "--version", "--link-we", "--unlink-we", "--link-lively", "--unlink-lively", "--stop",
-        "--themes", "--theme", "--logos", "--style", "--once", "--config", "--check", "--share", "--update")]
+        "--themes", "--theme", "--logos", "--logo-from", "--style", "--once", "--config", "--check", "--share", "--update")]
     if unknown:
         sys.exit(f"unknown option {unknown[0]}\n\n{USAGE}")
     if "--selftest" in sys.argv:
@@ -2541,6 +2948,8 @@ if __name__ == "__main__":
             print(f"  {name:12} {t['bg']} {t['accent']} {t['secondary']}")
         print("  termwall --theme NAME   (auto = the distro's colors on Linux, mint on Windows)")
         sys.exit(0)
+    if "--logo-from" in sys.argv:
+        sys.exit(cmd_logo_from(sys.argv[sys.argv.index("--logo-from") + 1:]))
     if "--logos" in sys.argv:
         sys.exit(cmd_logos(sys.argv[sys.argv.index("--logos") + 1:]))
     if "--theme" in sys.argv:

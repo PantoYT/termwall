@@ -89,7 +89,7 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 | `date` | `long` (monday 5 october), `short`, `iso`, `none` | `long` |
 | `prompt` | the command in the prompt line, any text up to 60 characters | `fastfetch --live` |
 | `private` | `true` hides your user name, computer name and local IP (for streams and screenshots) | `false` |
-| `logo` | `auto`, `windows`, `tux`, `none`, `image` (see below), `custom` (your own ASCII art from `logo.txt` next to `termwall.toml`: up to 40 lines, `$1` accent, `$2` secondary, `$3` text, `$4` dim switch the color), or any of fastfetch's 540 logos by id (`arch` on Windows works; `termwall logos` lists them, `termwall logos mac` finds the macOS ones, `termwall logos apple` shows one in the terminal) | `auto` |
+| `logo` | `auto`, `windows`, `tux`, `none`, `image` (see below), `custom` (your own ASCII art from `logo.txt` next to `termwall.toml`: up to 40 lines, `$1` accent, `$2` secondary, `$3` text, `$4` dim switch the color, or your own colors through `logo_colors`; `termwall logo-from PICTURE` makes one from a picture, see below), or any of fastfetch's 540 logos by id (`arch` on Windows works; `termwall logos` lists them, `termwall logos mac` finds the macOS ones, `termwall logos apple` shows one in the terminal) | `auto` |
 | `logo_width`, `logo_chars`, `logo_colors` | with `logo = "image"`: a picture or an animated GIF (`logo.gif`, `.png`, `.jpg` or `.webp` next to `termwall.toml`, up to 8 MB) turned into text. `logo_width` 12-120 characters; `logo_chars` `blocks` (half blocks, two pixels per character, best for pixel art) or `ascii`; GIF frames play at their own speed | `40`, `blocks` |
 | `logo_colors` | the logo's colors, separate from the rest of the screen (theme, livery and `colors` don't change): `own` (fastfetch's own colors, so `apple` is a rainbow; a picture's own), `palette` (the palette's; a picture's light and dark turned into it), a list of up to nine `#rrggbb` for `$1`, `$2`... of a text logo (`["#e05252", "#5fb85f"]`, or `termwall --style logo_colors "#e05252,#5fb85f"`), `auto` (a picture in its own colors, text logos in the palette; `image` is the same) | `auto` |
 | `prompt_color` | `text`, `accent`, `secondary`, `dim`: the color of the command in the prompt line | `text` |
@@ -97,6 +97,19 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 | `scale` | `0.8` to `1.1`: smaller fits more, larger makes everything bigger | `1.0` |
 | `effects` | any mix of `crt` (scanlines and a vignette), `glow` (soft light around text), `flicker` (faint unsteady brightness), `roll` (a slow band rolling down), `chroma` (red/cyan fringes), `curve` (rounded tube corners), `noise` (film grain) | none |
 | `rotate` | minutes between layouts, `0` = off | `0` |
+
+**A logo from a picture**: `termwall logo-from flag.png` turns a picture into `logo.txt`
+(fastfetch's format: `$1`…`$9` switch the color) and sets `logo = "custom"` with the
+picture's colors in `logo_colors`, so you can edit the text by hand, share it, or send it to
+fastfetch. Up to nine colors, the most used one `$1`. A plain background around the picture
+goes, and so do the colors where it blended into the edges; a background-colored detail
+inside the picture stays. Half blocks by default, two pixels a character; a character has one
+color, so where two differ the rarer one wins (lines and highlights survive). Options:
+`--width N` (40), `--ascii` (characters from light to dense), `--colors N`, `--keep-bg`,
+`--out FILE` (write only that file, settings untouched), `--force` (replace `logo.txt`).
+PNG is read with the standard library; GIF (its first frame), JPEG, WebP and BMP need Pillow
+(`pip install pillow`). For a picture that moves or that you don't want to edit,
+`logo = "image"` draws it live instead.
 
 **The palette**: `theme.json`, six `#rrggbb` colors:
 
