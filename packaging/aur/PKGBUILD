@@ -1,6 +1,6 @@
 # Maintainer: Panto (https://github.com/PantoYT)
 pkgname=termwall
-pkgver=2.2.0
+pkgver=2.3.0
 pkgrel=1
 pkgdesc="Live system-stats wallpaper: a terminal-style page on the desktop background (wlr-layer-shell)"
 arch=('any')
@@ -9,7 +9,7 @@ license=('MIT' 'OFL-1.1')
 depends=('python' 'python-psutil' 'python-gobject' 'gtk4' 'webkitgtk-6.0' 'gtk4-layer-shell')
 install=termwall.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('127b6e4d291edc4aa8516788cadeff2d1b46e24ac9d609e881c0004d793bafb8')
+sha256sums=('389450f5d223523bd2343bcfe105577017eb52a228302119cade9eb930eb542c')
 
 check() {
     cd "$pkgname-$pkgver"
