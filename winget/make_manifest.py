@@ -19,7 +19,7 @@ from pathlib import Path
 
 ID = "PantoYT.termwall"
 REPO = "https://github.com/PantoYT/termwall"
-MANIFEST_VERSION = "1.12.0"
+MANIFEST_VERSION = "1.28.0"
 
 
 def asset_url(version: str) -> str:

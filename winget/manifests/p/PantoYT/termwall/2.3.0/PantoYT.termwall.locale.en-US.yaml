@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
 
 PackageIdentifier: PantoYT.termwall
 PackageVersion: 2.3.0
@@ -29,4 +29,4 @@ Tags:
 - rice
 ReleaseNotesUrl: https://github.com/PantoYT/termwall/releases/tag/v2.3.0
 ManifestType: defaultLocale
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
