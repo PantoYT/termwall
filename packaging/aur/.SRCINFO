@@ -1,6 +1,6 @@
 pkgbase = termwall
 	pkgdesc = Live system-stats wallpaper: a terminal-style page on the desktop background (wlr-layer-shell)
-	pkgver = 2.3.0
+	pkgver = 2.4.0
 	pkgrel = 1
 	url = https://github.com/PantoYT/termwall
 	install = termwall.install
@@ -13,7 +13,7 @@ pkgbase = termwall
 	depends = gtk4
 	depends = webkitgtk-6.0
 	depends = gtk4-layer-shell
-	source = termwall-2.3.0.tar.gz::https://github.com/PantoYT/termwall/archive/refs/tags/v2.3.0.tar.gz
-	sha256sums = 389450f5d223523bd2343bcfe105577017eb52a228302119cade9eb930eb542c
+	source = termwall-2.4.0.tar.gz::https://github.com/PantoYT/termwall/archive/refs/tags/v2.4.0.tar.gz
+	sha256sums = a4a2b83a38ff8fda8193350b49db163ba7f24dcf79556ef54d5896d9450d975a
 
 pkgname = termwall
