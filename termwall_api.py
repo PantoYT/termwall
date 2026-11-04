@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psutil
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 HOST, PORT = "127.0.0.1", 9002
 HISTORY = 60  # seconds of CPU/GPU/net history for sparklines
@@ -79,7 +79,7 @@ def valid_theme(t) -> bool:
 STYLE_FILE = os.environ.get("TERMWALL_STYLE") or os.path.join(CONFIG_DIR, "termwall.toml")
 LAYOUTS = ("fetch", "board", "minimal", "htop", "portrait", "phone", "logo")
 SECTIONS = ("prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
-            "procs", "swatches", "music", "status")
+            "procs", "swatches", "music", "status", "sound")
 FONTS = ("cascadia", "jetbrains", "fira", "iosevka", "consolas", "system")
 EFFECTS = ("crt", "glow", "flicker", "roll", "chroma", "curve", "noise")
 
@@ -188,11 +188,14 @@ STYLE_SPEC = {
     "scale": _float(0.8, 1.1),
     "effects": _subset(*EFFECTS),
     "logo": _logo,
+    "visualizer": _choice("off", "bars", "pulse", "both"),  # layouts logo and fetch: music from WE
+    "sound_bars": _int(4, 32),                              # how many bars the spectrum in fetch has
 }
 STYLE_DEFAULTS = {"layout": "fetch", "bars": "blocks", "rotate": 0, "theme": "auto", "clock": "24h",
                   "seconds": True, "date": "long", "hide": [], "private": False, "font": "cascadia",
                   "scale": 1.0, "effects": [], "logo": "auto", "prompt_color": "text",
-                  "logo_width": 40, "logo_chars": "blocks", "logo_colors": "auto"}
+                  "logo_width": 40, "logo_chars": "blocks", "logo_colors": "auto",
+                  "visualizer": "off", "sound_bars": 16}
 
 
 def clean_style(raw) -> dict:
@@ -331,7 +334,7 @@ def parse_value(key: str, value: str):
         return value
     if getattr(check, "help", "").startswith("a list"):
         return [] if value.lower() in ("none", "") else [x.strip() for x in value.split(",") if x.strip()]
-    if key == "rotate":
+    if check.__qualname__.startswith("_int."):  # rotate, logo_width, sound_bars...
         return int(value) if value.isdigit() else value
     if key == "scale":
         try:
@@ -384,6 +387,12 @@ STYLE_DOCS = {
                    "turned into it); a list = your own colors for $1, $2... of a text logo,\n"
                    "e.g. [\"#e05252\", \"#5fb85f\"]; auto = a picture in its own, text logos in the palette",
 }
+STYLE_DOCS["visualizer"] = (
+    "The music playing on the PC (Wallpaper Engine only; elsewhere nothing moves).\n"
+    "bars = a spectrum: in layout logo under the logo, in fetch over the clock (hide it there\n"
+    "with hide = [\"sound\"]), in the logo's colors (logo = \"apple\" with logo_colors = \"own\":\n"
+    "a rainbow); pulse = the logo beats with the bass (layout logo); both = the two")
+STYLE_DOCS["sound_bars"] = "How many bars the spectrum in fetch has, bass on the left"
 STYLE_DOCS["font"] = ("The font. cascadia comes with Windows 11; jetbrains, fira and iosevka come with termwall;\n"
             "consolas and system (the browser's monospace) are always there")
 CONFIG_DEFAULTS = {**STYLE_DEFAULTS, "prompt": "fastfetch --live"}
@@ -2416,6 +2425,12 @@ def selftest() -> int:
         set_style("layout", "board", sp)
         set_style("rotate", "15", sp)
         check(read_style(sp, tp)["layout"] == "board" and read_style(sp, tp)["rotate"] == 15, "termwall.toml read")
+        set_style("sound_bars", "8", sp)
+        set_style("logo_width", "48", sp)
+        check(read_style(sp, tp)["sound_bars"] == 8 and read_style(sp, tp)["logo_width"] == 48,
+              "--style takes any number setting from the command line, not only rotate")
+        set_style("sound_bars", "default", sp)
+        set_style("logo_width", "default", sp)
         text = open(sp, encoding="utf-8").read()
         check(all(f"\n{k} = " in text for k in STYLE_SPEC if k != "colors") and "# colors = {" in text,
               "termwall.toml lists every setting")
@@ -2586,7 +2601,8 @@ def selftest() -> int:
             with contextlib.redirect_stdout(io.StringIO()):
                 rc1 = cmd_logo_from([pp, "--width", "32"])
                 rc2 = cmd_logo_from([pp])
-            st = read_style(os.path.join(td, "termwall.toml"))
+            # not the real theme.json: a pack's own look there (livery) would win over the file
+            st = read_style(os.path.join(td, "termwall.toml"), os.path.join(td, "theme.json"))
             check(rc1 == 0 and rc2 == 1 and read_logo(os.path.join(td, "logo.txt")) == text
                   and st.get("logo") == "custom" and st.get("logo_colors") == cols,
                   "logo-from writes logo.txt, sets logo custom and its colors, won't overwrite without --force")

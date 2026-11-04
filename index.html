@@ -76,7 +76,16 @@ h3 b{color:var(--teal);font-weight:400}
 #fetch .top{display:flex;gap:64px;align-items:flex-start}
 #fetch .info{flex:1;min-width:0}
 #fetch .panels{display:grid;grid-template-columns:1.25fr 1fr;gap:56px;margin-top:22px}
-#fetch .clock{align-self:flex-end;margin-left:auto;text-align:right;--ch:84px;flex:none}
+#fetch .rcol{margin-left:auto;align-self:stretch;display:flex;flex-direction:column;justify-content:flex-end;
+  align-items:flex-end;gap:30px;flex:none}
+#fetch .clock{align-self:flex-end;text-align:right;--ch:84px;flex:none}
+/* sound: a spectrum as wide as the clock, over it (visualizer = bars | both) */
+.eq{display:none;align-items:flex-end;gap:6px;height:128px}
+#fetch .eq{align-self:stretch}
+body.viz-bars .eq{display:flex}
+.eq s{display:block;flex:1;align-self:stretch;position:relative;text-decoration:none}
+.eq i{position:absolute;left:0;right:0;bottom:0;height:2px;background:currentColor;opacity:.9}
+.eq b{position:absolute;left:0;right:0;bottom:0;height:3px;background:currentColor;opacity:.55}
 #fetch .clock .time{justify-content:flex-end}
 #fetch .clock .date{font-size:18px;margin-top:16px}
 #fetch .clock .sec{font-size:15px;margin-top:2px}
@@ -150,7 +159,10 @@ body.L-minimal #minimal{display:flex;flex-direction:column;align-items:center;ju
 /* ── layout: portrait (a monitor turned on its side: 1080×1920) ── */
 /* logo: the logo as big as the screen allows, with who and where under it */
 body.L-logo #logo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px}
-#logo pre.logo{width:fit-content}
+#logo pre.logo{width:fit-content;transform-origin:50% 60%;transition:transform 70ms linear,filter 70ms linear}
+/* visualizer: a spectrum right under the logo, as wide as it, in its colors */
+#logo pre.viz{display:none;font:inherit;line-height:1;white-space:pre;margin:-18px 0 0;width:fit-content}
+body.viz-bars #logo pre.viz{display:block}
 #logo .title{font-size:40px}
 #logo .os{font-size:24px;color:var(--dim);margin-top:-18px}
 #logo .swatches span{width:64px;height:22px}
@@ -199,7 +211,8 @@ body.hide-prompt [data-sec~="prompt"], body.hide-logo [data-sec~="logo"], body.h
 body.hide-clock [data-sec~="clock"], body.hide-cpu [data-sec~="cpu"], body.hide-cores [data-sec~="cores"],
 body.hide-gpu [data-sec~="gpu"], body.hide-memory [data-sec~="memory"], body.hide-disks [data-sec~="disks"],
 body.hide-network [data-sec~="network"], body.hide-procs [data-sec~="procs"], body.hide-swatches [data-sec~="swatches"],
-body.hide-music [data-sec~="music"], body.hide-status [data-sec~="status"]{display:none !important}
+body.hide-music [data-sec~="music"], body.hide-status [data-sec~="status"],
+body.hide-sound [data-sec~="sound"]{display:none !important}
 /* scanlines and a soft vignette over everything; pointer-events off, it's only paint */
 body.fx-crt #stage::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:10;
   background:repeating-linear-gradient(to bottom, rgba(0,0,0,.22) 0 1px, transparent 1px 3px),
@@ -244,8 +257,11 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
         <div data-p="rows"></div>
         <div class="swatches" data-p="swatches" data-sec="swatches"></div>
       </div>
-      <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div>
-        <div class="now" data-p="now" data-sec="music"></div></div>
+      <div class="rcol">
+        <div class="eq" data-eq data-sec="sound"></div>
+        <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div>
+          <div class="now" data-p="now" data-sec="music"></div></div>
+      </div>
     </div>
     <div class="panels">
       <div>
@@ -326,6 +342,7 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
   <!-- logo: the logo, huge; for a monitor that only has to look good -->
   <section class="layout" id="logo">
     <pre class="logo" data-p="logo" data-sec="logo"></pre>
+    <pre class="viz" data-sec="logo"></pre>
     <div class="title" data-p="title" data-sec="info"></div>
     <div class="os" data-p="logo-os" data-sec="info"></div>
     <div class="swatches" data-p="swatches" data-sec="swatches"></div>
@@ -367,7 +384,7 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
 <script src="logos.js"></script>
 <script>
 // token.js is written by termwall_api.py at start; without the token the API answers 403.
-const TOKEN = encodeURIComponent(window.TERMWALL_TOKEN || "");
+let TOKEN = encodeURIComponent(window.TERMWALL_TOKEN || "");
 const API = window.TERMWALL_API || "http://127.0.0.1:9002/stats";  // "stats" when served by termwall share
 const SHARE = window.TERMWALL_SHARE === true;
 // Wallpaper Engine: the "termwall screen" property (project.json), set per monitor in WE;
@@ -375,8 +392,21 @@ const SHARE = window.TERMWALL_SHARE === true;
 let SCREEN = /^\d{1,2}$/.test(new URLSearchParams(location.search).get("screen") || "") ? new URLSearchParams(location.search).get("screen") : null;
 window.wallpaperPropertyListener = {applyUserProperties(p){ if (p.screen) { SCREEN = String(p.screen.value); styleKey = ""; if (!DEMO) pollTheme(); } }};
 function withToken(url){ return url + "?t=" + TOKEN + (SCREEN ? "&screen=" + SCREEN : ""); }
-// API restarted → new token → 403. Reload (re-reads token.js), at most once per 10 s.
+// API restarted → new token → 403. A plain reload can get token.js back from the cache (old token,
+// "connecting" for good), so first read it again past the cache: a script tag with a query works
+// from file:// too. Only if that brings nothing new: reload, at most once per 10 s.
+let tokenFetch = 0;
 function onForbidden(){
+  if (Date.now() - tokenFetch > 3000) {
+    tokenFetch = Date.now();
+    const old = window.TERMWALL_TOKEN, sc = document.createElement("script");
+    sc.src = "token.js?" + Date.now();
+    sc.onload = () => { sc.remove(); if (window.TERMWALL_TOKEN && window.TERMWALL_TOKEN !== old) TOKEN = encodeURIComponent(window.TERMWALL_TOKEN); else reloadOnce(); };
+    sc.onerror = () => { sc.remove(); reloadOnce(); };
+    document.head.appendChild(sc);
+  }
+}
+function reloadOnce(){
   let last = 0;
   try { last = +sessionStorage.getItem("tw-reload") || 0; } catch (e) { return; }  // no storage → no reload loop
   if (Date.now() - last > 10000) {
@@ -416,11 +446,11 @@ if (SHARE) {  // a tap goes fullscreen; the screen stays on where the browser al
 const LAYOUTS = ["fetch", "board", "minimal", "htop", "portrait", "phone", "logo"];
 const ROTATION = ["fetch", "board", "minimal", "htop"];  // "rotate" cycles the landscape ones
 let style = {layout: "fetch", bars: "blocks", rotate: 0, clock: "24h", seconds: true, date: "long", hide: [],
-             private: false, font: "cascadia", scale: 1, effects: [], logo: "auto"}, styleKey = "";
+             private: false, font: "cascadia", scale: 1, effects: [], logo: "auto", visualizer: "off", sound_bars: 16}, styleKey = "";
 const URLQ = new URLSearchParams(location.search);
 // ?layout=htop&hide=gpu,procs&effects=crt&font=jetbrains&clock=12h... (handy in a browser; wins over the files)
 const URL_STYLE = {};
-for (const k of ["layout", "bars", "clock", "date", "font", "logo", "prompt", "logo_chars", "logo_colors"]) if (URLQ.get(k) !== null) URL_STYLE[k] = URLQ.get(k);
+for (const k of ["layout", "bars", "clock", "date", "font", "logo", "prompt", "logo_chars", "logo_colors", "visualizer"]) if (URLQ.get(k) !== null) URL_STYLE[k] = URLQ.get(k);
 if (/#/.test(URL_STYLE.logo_colors || "")) URL_STYLE.logo_colors = URL_STYLE.logo_colors.split(",");  // ?logo_colors=%23e05252,%235fb85f
 if (URLQ.get("logo_width")) URL_STYLE.logo_width = Number(URLQ.get("logo_width"));
 for (const k of ["hide", "effects"]) if (URLQ.get(k) !== null) URL_STYLE[k] = URLQ.get(k).split(",").filter(Boolean);
@@ -435,7 +465,7 @@ const FONTS = {
   system: 'monospace',  // the browser's own monospace font (Consolas on Windows)
 };
 const SECTIONS = ["prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network",
-                  "procs", "swatches", "music", "status"];
+                  "procs", "swatches", "music", "status", "sound"];
 function applyStyle(st){
   if (!st) return;
   st = {...style, ...st, ...URL_STYLE};
@@ -446,6 +476,8 @@ function applyStyle(st){
   for (const sec of SECTIONS) b.classList.toggle("hide-" + sec, hidden.has(sec));
   for (const e of ["crt", "glow", "flicker", "roll", "chroma", "curve", "noise"]) b.classList.toggle("fx-" + e, fx.has(e));
   for (const k of ["blocks", "shade", "dots", "line"]) b.classList.toggle("bars-" + k, (style.bars || "blocks") === k);
+  b.classList.toggle("viz-bars", ["bars", "both"].includes(style.visualizer));
+  if (!["pulse", "both"].includes(style.visualizer)) vizPulse(0);
   document.documentElement.style.setProperty("--font", FONTS[style.font] || FONTS.cascadia);
   showLayout(); fit(); tick();
   if (last) render(last);
@@ -726,7 +758,12 @@ function fitBigLogo(){
   if (!el || currentLayout() !== "logo") return;
   const lines = el.textContent.split("\n"), rows = lines.length, cols = Math.max(1, ...lines.map(l => l.length));
   const [w, h] = stageSize(), lh = style.logo === "image" ? 1 : 1.22;
-  el.style.fontSize = Math.max(10, Math.floor(Math.min(h * 0.62 / (rows * lh), w * 0.85 / (cols * 0.6)))) + "px";
+  const viz = document.body.classList.contains("viz-bars") ? VIZ_ROWS + 1 : 0;  // the spectrum's rows under it
+  const px = Math.max(10, Math.floor(Math.min(h * 0.62 / (rows * lh + viz), w * 0.85 / (cols * 0.6))));
+  el.style.fontSize = px + "px";
+  VIZ.cols = cols;
+  const v = document.querySelector('#logo pre.viz');
+  if (v) v.style.fontSize = px + "px";
 }
 function pickLogo(s){
   const want = style.logo || "auto";
@@ -893,7 +930,7 @@ async function poll(){
     if (s && s.time) {
       if (checkPage(s)) return;
       applyStyle(s.style); ownTheme = logoTheme(s); serverTheme = s.theme; applyTheme(s.theme); render(s); failures = 0;
-      put("status", `<span class="ok">●</span> ${SHARE ? "termwall share" : "termwall-api · 127.0.0.1:9002"}${SCREEN ? " · screen " + SCREEN : ""} · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}`); }
+      put("status", `<span class="ok">●</span> ${SHARE ? "termwall share" : "termwall-api · 127.0.0.1:9002"}${SCREEN ? " · screen " + SCREEN : ""} · ${new Date(s.time*1000).toLocaleTimeString("en-GB")}${audioTag()}`); }
   } catch (e) {
     failures++;
     put("status", `<span class="bad">●</span> api offline · run <span class="g">python termwall_api.py</span>` + (failures > 1 ? ` <span class="d">(${failures})</span>` : ""));
@@ -970,6 +1007,136 @@ async function pollTheme(){
 }
 if (!DEMO) setInterval(pollTheme, 250);
 
+// ── visualizer (layout logo): Wallpaper Engine hands the page 64 bands per channel ~30×/s ──
+// bars = a spectrum under the logo in the logo's colors, pulse = the logo beats with the bass
+const VIZ_ROWS = 6, VIZ_CH = " ▁▂▃▄▅▆▇█";
+const VIZ = {bands: new Float32Array(64), peak: 0.2, peakT: 0.2, bass: 0, cols: 32, last: 0,
+             heard: 0, loud: 0, caps: [], shown: [], frame: 0};
+function vizOn(){ return style.visualizer && style.visualizer !== "off" && ["logo", "fetch"].includes(currentLayout()); }
+// n bars from the 64 bands, bass on the left. Hearing is logarithmic, so the low bands get bars of
+// their own and the high ones share; the top dozen are mostly empty in music, so they're left out.
+function vizLevels(n){
+  const out = [];
+  for (let x = 0; x < n; x++) {
+    const lo = Math.floor(Math.pow(x / n, 1.7) * 52), hi = Math.max(lo + 1, Math.floor(Math.pow((x + 1) / n, 1.7) * 52));
+    let v = 0;
+    for (let i = lo; i < hi && i < 64; i++) v = Math.max(v, VIZ.bands[i]);
+    out.push(Math.min(1, v / VIZ.peak));
+  }
+  return out;
+}
+// sound (fetch): bars as divs, each with a cap that falls slower than the bar
+function drawEq(){
+  const lv = VIZ.shown, n = lv.length, colors = vizColors();
+  if (!n) return;
+  if (VIZ.caps.length !== n) VIZ.caps = new Array(n).fill(0);
+  document.querySelectorAll("[data-eq]").forEach(el => {
+    if (el.children.length !== n) el.innerHTML = "<s><i></i><b></b></s>".repeat(n);
+    [...el.children].forEach((slot, x) => {
+      VIZ.caps[x] = Math.max(lv[x], VIZ.caps[x] - 0.015);
+      slot.style.color = colors[Math.min(colors.length - 1, Math.floor(x / n * colors.length))];
+      slot.firstChild.style.height = `max(2px, ${(lv[x] * 100).toFixed(1)}%)`;
+      slot.lastChild.style.bottom = `calc(${(VIZ.caps[x] * 100).toFixed(1)}% + 3px)`;
+    });
+  });
+}
+// the colors left to right: the logo's own when it shows them (apple: its rainbow), else accent -> secondary
+function vizColors(){
+  const own = style.logo === "image" ? null : ownColors(logoId(style.logo) || (last ? logoDistro(last) : null));
+  if (own && own.length) return own.filter(c => /^#[0-9a-f]{6}$/i.test(c || ""));
+  const cs = getComputedStyle(document.documentElement), a = cs.getPropertyValue("--mint").trim(),
+        b = cs.getPropertyValue("--teal").trim();
+  if (!/^#[0-9a-f]{6}$/i.test(a) || !/^#[0-9a-f]{6}$/i.test(b)) return [a || "#b5f4e7"];
+  const mix = t => "#" + [1, 3, 5].map(i => Math.round(parseInt(a.substr(i, 2), 16) * (1 - t) +
+    parseInt(b.substr(i, 2), 16) * t).toString(16).padStart(2, "0")).join("");
+  return [0, 1, 2, 3, 4, 5].map(i => mix(i / 5));
+}
+function vizPulse(k){
+  const el = document.querySelector('#logo pre.logo');
+  if (!el) return;
+  el.style.transform = k ? `scale(${(1 + 0.06 * k).toFixed(3)})` : "";
+  el.style.filter = k ? `brightness(${(1 + 0.45 * k).toFixed(3)})` : "";
+}
+function drawViz(){
+  if (!vizOn()) return;
+  const mode = style.visualizer;
+  if ((mode === "pulse" || mode === "both") && currentLayout() === "logo") vizPulse(Math.min(1.2, VIZ.bass));
+  if (mode !== "bars" && mode !== "both") return;
+  if (currentLayout() === "fetch") return;  // eqFrame draws it, smoothed
+  const out = document.querySelector('#logo pre.viz');
+  if (!out) return;
+  const cols = Math.max(8, VIZ.cols), colors = vizColors(), n = Math.max(1, colors.length);
+  const level = vizLevels(cols).map(v => v * VIZ_ROWS);
+  let html = "";
+  for (let r = 0; r < VIZ_ROWS; r++) {
+    const floor = VIZ_ROWS - 1 - r;
+    let row = "", cur = -1;
+    for (let x = 0; x < cols; x++) {
+      const c = Math.min(n - 1, Math.floor(x / cols * n));  // a stripe per color, like the apple's
+      if (c !== cur) { row += (cur < 0 ? "" : "</span>") + `<span style="color:${colors[c]}">`; cur = c; }
+      row += VIZ_CH[Math.round(Math.max(0, Math.min(1, level[x] - floor)) * 8)];
+    }
+    html += (r ? "\n" : "") + row + "</span>";
+  }
+  out.innerHTML = html;
+}
+// louder of the two channels, fast up and slow down; the peak follows the music so quiet songs still move
+// (layout logo draws straight from this, on every packet from WE)
+function onAudio(a, fake){
+  let mx = 0, mt = 0, raw = 0;
+  for (let i = 0; i < 128; i++) raw = Math.max(raw, a[i] || 0);
+  if (!fake) { VIZ.heard = performance.now(); if (raw > 0.001) VIZ.loud = VIZ.heard; }
+  for (let i = 0; i < 64; i++) {
+    const v = Math.min(1, Math.max(a[i] || 0, a[i + 64] || 0));
+    VIZ.bands[i] = v > VIZ.bands[i] ? v : VIZ.bands[i] * 0.75 + v * 0.25;
+    mx = Math.max(mx, VIZ.bands[i]);
+    mt = Math.max(mt, VIZ.bands[i] * VIZ_TILT[i]);
+  }
+  VIZ.peak = Math.max(0.08, mx, VIZ.peak * 0.995);
+  VIZ.peakT = Math.max(0.08, mt, VIZ.peakT * 0.995);
+  VIZ.bass = (VIZ.bands[0] + VIZ.bands[1] + VIZ.bands[2] + VIZ.bands[3]) / 4 / VIZ.peak;
+  VIZ.last = performance.now();
+  if (currentLayout() !== "fetch") drawViz();
+}
+// nothing came for a while (WE paused, or not WE at all): let it fall flat instead of freezing mid-beat
+setInterval(() => { if (performance.now() - VIZ.last > 400 && VIZ.bass + VIZ.peak > 0) onAudio(new Array(128).fill(0), true); }, 100);
+
+// fetch: WE's packets come ~30x/s and unevenly, so the bars there would jump. Each display frame
+// moves them toward the packet's levels instead (quick up, slower down, same speed at any frame rate).
+// WE's bands also fall off steeply - bass fills the bars, treble barely moves - so fetch tilts them:
+// quieter low end, louder top, like the +3 dB/octave of pink-noise-weighted analyzers.
+const VIZ_TILT = Float32Array.from({length: 64}, (_, i) => 0.55 + 1.2 * Math.pow(i / 63, 0.7));
+function eqTargets(n){
+  const out = [];
+  for (let x = 0; x < n; x++) {
+    const lo = Math.floor(Math.pow(x / n, 1.7) * 52), hi = Math.max(lo + 1, Math.floor(Math.pow((x + 1) / n, 1.7) * 52));
+    let v = 0;
+    for (let i = lo; i < hi && i < 64; i++) v = Math.max(v, VIZ.bands[i] * VIZ_TILT[i]);
+    out.push(Math.min(1, v / VIZ.peakT));
+  }
+  return out;
+}
+function eqFrame(now){
+  requestAnimationFrame(eqFrame);
+  const dt = Math.min(0.1, (now - (VIZ.frame || now)) / 1000); VIZ.frame = now;
+  if (!dt || !vizOn() || currentLayout() !== "fetch" || !["bars", "both"].includes(style.visualizer)) return;
+  const n = Math.max(4, Math.min(32, Number(style.sound_bars) || 16)), t = eqTargets(n);
+  if (VIZ.shown.length !== n) VIZ.shown = new Array(n).fill(0);
+  const up = 1 - Math.exp(-dt * 28), down = 1 - Math.exp(-dt * 9);
+  VIZ.shown = VIZ.shown.map((v, x) => v + (t[x] - v) * (t[x] > v ? up : down));
+  drawEq();
+}
+requestAnimationFrame(eqFrame);
+// for the status line: is the music getting here at all? (with the visualizer on)
+function audioTag(){
+  if (!style.visualizer || style.visualizer === "off") return "";
+  const now = performance.now();
+  if (!window.wallpaperRegisterAudioListener && !DEMO) return ` · <span class="d">♪ not in Wallpaper Engine</span>`;
+  if (now - VIZ.heard > 2000) return ` · <span class="bad">♪</span> <span class="d">no audio from WE</span>`;
+  if (now - VIZ.loud > 2000) return ` · <span class="d">♪ silence</span>`;
+  return ` · <span class="ok">♪</span> audio`;
+}
+
 // ── clock glyphs ──
 // blocks: a 3×5 pixel font, every glyph ONE svg path — no seams between cells at any scale
 const PIX = {
@@ -1006,6 +1173,13 @@ function tick(){ const n = new Date();
 }
 setInterval(tick, 1000); tick();
 
+// Wallpaper Engine: the music's spectrum for the visualizer (registered once, at the end of the body)
+if (window.wallpaperRegisterAudioListener) window.wallpaperRegisterAudioListener(onAudio);
+else if (DEMO && URLQ.get("visualizer")) {  // a browser demo: made-up music, a beat at 120 bpm
+  setInterval(() => { const t = performance.now() / 1000, beat = Math.exp(-((t * 2) % 1) * 6);
+    onAudio(Array.from({length: 128}, (_, i) => { const b = i % 64;
+      return Math.max(0, (b < 6 ? beat : 0.55 * Math.exp(-b / 18)) * (0.7 + 0.3 * Math.sin(t * 3 + b * 0.7)) + Math.random() * 0.05); })); }, 33);
+}
 // Wallpaper Engine: currently playing track (only exists inside WE, harmless elsewhere)
 if (window.wallpaperRegisterMediaPropertiesListener) {
   window.wallpaperRegisterMediaPropertiesListener(e => {
