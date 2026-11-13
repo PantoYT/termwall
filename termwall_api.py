@@ -2097,8 +2097,12 @@ def make_share_handler(sampler: Sampler, key: str):
             path = url.path.lstrip("/")
             if path == "ping":
                 return self.send(200, b"termwall")
-            if path in SHARE_STATIC or (path.startswith("fonts/") and path.endswith(".woff2")
-                                        and "/" not in path[6:] and ".." not in path):
+            # a font by its plain file name only: a drive or UNC path after fonts/ would make
+            # os.path.join leave the folder (fonts/C:\x.woff2; fonts/\\host\x.woff2 even opens SMB)
+            name = path[6:] if path.startswith("fonts/") else ""
+            font = (name.endswith(".woff2") and not name.startswith(".") and ".." not in name
+                    and all(c.isascii() and (c.isalnum() or c in "-_.") for c in name))
+            if path in SHARE_STATIC or font:
                 try:
                     with open(os.path.join(os.path.dirname(PAGE_FILE), *path.split("/")), "rb") as f:
                         body = f.read()
@@ -2707,6 +2711,12 @@ def selftest() -> int:
           "share serves the page with its key and a manifest")
     check(get("/logos.js")[0] == 200 and get("/termwall_api.py")[0] in (403, 404) and get("/fonts/../share.json")[0] in (403, 404),
           "share: static files only from the list, no source or settings")
+    with tempfile.TemporaryDirectory() as td:  # a font-named file outside the page folder
+        outside = os.path.join(td, "secret.woff2")
+        with open(outside, "wb") as f:
+            f.write(b"secret")
+        code, body = get("/fonts/" + outside.replace(" ", "%20"))
+        check(code == 403 and body != b"secret", "share: a font path into another folder (C:\\..., \\\\host\\...) is refused")
     for _ in range(25):
         get("/stats?t=nope")
     check(get(f"/stats?t={key}")[0] == 429, "share: 20 wrong keys block that address for a while")
