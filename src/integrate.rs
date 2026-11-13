@@ -56,7 +56,7 @@ pub fn we_projects() -> Option<PathBuf> {
     None
 }
 
-fn same_file(a: &Path, b: &Path) -> bool {
+pub fn same_file(a: &Path, b: &Path) -> bool {
     match (fs::canonicalize(a), fs::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => false,

@@ -403,6 +403,12 @@ fn integrations(t: &mut T) {
         steam_libraries(vdf) == vec!["C:\\Program Files (x86)\\Steam".to_string(), "D:\\SteamLibrary".to_string()],
         "Steam libraries from libraryfolders.vdf",
     );
+    let page = here.join("index.html");
+    let other = if cfg!(windows) { "INDEX.HTML" } else { "index.html" };
+    t.check(
+        integrate::same_file(&here.join(".").join(other), &page) && !integrate::same_file(&here.join("no-such-file.html"), &page),
+        "--stop knows its script by any spelling of the path, and no other script",
+    );
 }
 
 fn logo_txt(t: &mut T) {
@@ -807,11 +813,11 @@ mod tests {
         group("sampler");
     }
 
-    /// Every assertion of the Python selftest is here: 127 on Windows, 129 on Linux.
+    /// Every assertion of the Python selftest is here: 128 on Windows, 130 on Linux.
     #[test]
     fn all_assertions_counted() {
         let t = run_all();
         assert!(t.failures.is_empty(), "{:#?}", t.failures);
-        assert_eq!(t.ok, if cfg!(unix) { 129 } else { 127 });
+        assert_eq!(t.ok, if cfg!(unix) { 130 } else { 128 });
     }
 }

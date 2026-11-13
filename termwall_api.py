@@ -1541,16 +1541,24 @@ def unlink_lively() -> str:
     return f"removed {entry}"
 
 
+def same_script(arg: str, me: str) -> bool:
+    """arg names the file me, whatever the spelling: another case, a relative path, or the same
+    folder reached by another name (a junction, a renamed folder with a link back)."""
+    try:
+        return os.path.samefile(arg, me)
+    except OSError:
+        return os.path.normcase(os.path.abspath(arg)) == os.path.normcase(os.path.abspath(me))
+
+
 def stop_running() -> int:
     """Stop the API processes running THIS folder's termwall_api.py (installer: before an
     update replaces files, and on uninstall). Returns how many were stopped."""
-    me = os.path.normcase(os.path.abspath(__file__))
+    me = os.path.abspath(__file__)
     n = 0
     for p in psutil.process_iter(["pid", "cmdline"]):
         try:
             cmd = p.info["cmdline"] or []
-            if p.info["pid"] != os.getpid() and any(os.path.normcase(os.path.abspath(c)) == me
-                                                     for c in cmd[1:] if c.endswith(".py")):
+            if p.info["pid"] != os.getpid() and any(same_script(c, me) for c in cmd[1:] if c.endswith(".py")):
                 p.kill()
                 n += 1
         except (psutil.Error, OSError):
@@ -2551,6 +2559,11 @@ def selftest() -> int:
         else:
             os.environ["LOCALAPPDATA"] = saved
     check(steam_libraries(vdf) == ["C:\\Program Files (x86)\\Steam", "D:\\SteamLibrary"], "Steam libraries from libraryfolders.vdf")
+    me = os.path.abspath(__file__)
+    other = os.path.basename(me).upper() if os.name == "nt" else os.path.basename(me)
+    check(same_script(os.path.join(os.path.dirname(me), ".", other), me)
+          and not same_script(os.path.join(os.path.dirname(me), "no-such-file.py"), me),
+          "--stop knows its script by any spelling of the path, and no other script")
     with tempfile.TemporaryDirectory() as td:
         lp = os.path.join(td, "logo.txt")
         check(read_logo(lp) is None, "no logo.txt -> no custom logo")
