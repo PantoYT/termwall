@@ -15,3 +15,5 @@ logo.jpg
 logo.jpeg
 logo.webp
 linux/test/out/
+target/
+selftest-tmp/
