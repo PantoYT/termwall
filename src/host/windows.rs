@@ -49,7 +49,7 @@ static AUDIO_PENDING: AtomicBool = AtomicBool::new(false);
 /// draws, for --seconds runs.
 const STATUS_JS: &str = r#"(() => {
   const s = [...document.querySelectorAll('[data-p=status]')].map(e => e.textContent.trim()).filter(Boolean);
-  let out = 'layout ' + (document.body.className.split(' ')[0] || '?') + ' | ' + (s[0] || '(no status line yet)');
+  let out = 'layout ' + ([...document.body.classList].find(c => c.startsWith('L-')) || '?').slice(2) + ' | ' + (s[0] || '(no status line yet)');
   if (typeof VIZ !== 'undefined' && document.body.classList.contains('viz-bars')) {
     const bars = [...document.querySelectorAll('#fetch .eq s i')]
       .map(e => Math.round(parseFloat((e.style.height.match(/([\d.]+)%/) || [0, 0])[1])));
