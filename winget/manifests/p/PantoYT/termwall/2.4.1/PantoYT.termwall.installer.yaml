@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
+
+PackageIdentifier: PantoYT.termwall
+PackageVersion: 2.4.1
+InstallerType: inno
+Scope: user
+UpgradeBehavior: install
+ReleaseDate: 2026-11-14
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/PantoYT/termwall/releases/download/v2.4.1/termwall-setup-2.4.1.exe
+  InstallerSha256: C178AB2311A988303CB47FC6658C1EED67857108E4B27D1F7DB27D91701974F5
+ManifestType: installer
+ManifestVersion: 1.28.0
