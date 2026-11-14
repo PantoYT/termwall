@@ -79,9 +79,9 @@ h3 b{color:var(--teal);font-weight:400}
 #fetch .rcol{margin-left:auto;align-self:stretch;display:flex;flex-direction:column;justify-content:flex-end;
   align-items:flex-end;gap:30px;flex:none}
 #fetch .clock{align-self:flex-end;text-align:right;--ch:84px;flex:none}
-/* sound: a spectrum as wide as the clock, over it (visualizer = bars | both) */
+/* sound: a spectrum over the clock, one and a half times its width (visualizer = bars | both) */
 .eq{display:none;align-items:flex-end;gap:6px;height:128px}
-#fetch .eq{align-self:flex-end}  /* its width: the clock's digits, set by tick() */
+#fetch .eq{align-self:flex-end}  /* its width: 1.5x the clock's digits, set by tick() */
 body.viz-bars .eq{display:flex}
 .eq s{display:block;flex:1;align-self:stretch;position:relative;text-decoration:none}
 .eq i{position:absolute;left:0;right:0;bottom:0;height:2px;background:currentColor;opacity:.9}
@@ -1170,10 +1170,11 @@ function tick(){ const n = new Date();
     c.querySelector(".date").textContent = date;
     c.querySelector(".sec").textContent = sec;
   });
-  // fetch: the spectrum as wide as the clock's digits. A long track title under the clock widens
-  // the column, and the bars must not follow it. With the clock hidden they keep their own width.
+  // fetch: the spectrum 1.5x as wide as the clock's digits, right-aligned over them. A long track
+  // title under the clock widens the column, and the bars must not follow it. With the clock
+  // hidden they keep their own width.
   const eq = document.querySelector("#fetch .eq"), digits = document.querySelector("#fetch .clock .time");
-  if (eq) eq.style.width = digits && digits.offsetWidth ? digits.offsetWidth + "px" : "";
+  if (eq) eq.style.width = digits && digits.offsetWidth ? Math.round(digits.offsetWidth * 1.5) + "px" : "";
 }
 setInterval(tick, 1000); tick();
 
