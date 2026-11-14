@@ -63,11 +63,11 @@ Read in rocksdanister/lively on GitHub (`src/Lively/Lively/Core/WinDesktopCore.c
   (comparing Explorer's pid, since a DPI change also sends it) to re-attach after an Explorer
   restart.
 - livery's `winwall.py` (the palette switcher that drives termwall) found the same thing from
-  the other side: Wallpaper Engine's `WPEDesktop` windows live in Progman on 24H2. It also records a trap: a cross-process
-  child window ties both processes' input queues together, and while Wallpaper Engine rebuilt its
-  windows that froze livery's listener (2026-09-30). The own host is a cross-process child of
-  Progman too, so its UI thread must never block (no synchronous calls into Explorer, no long
-  work on the window thread).
+  the other side: Wallpaper Engine's `WPEDesktop` windows live in Progman on 24H2. It also records
+  a trap: a cross-process child window ties both processes' input queues together, and while
+  Wallpaper Engine rebuilt its windows that froze livery's listener (2026-09-30). The own host is
+  a cross-process child of Progman too, so its UI thread must never block (no synchronous calls
+  into Explorer, no long work on the window thread).
 - Audio: NAudio `WasapiLoopbackCapture` plus an FFT, 128 values handed to the page as
   `livelyAudioListener(...)`; now playing as `livelyCurrentTrack(json)`; properties as
   `livelyPropertyListener(name, value)`. No `wallpaperRegister*` call appears in the player's
@@ -283,6 +283,51 @@ One WebView2 per monitor behind the desktop icons.
 8. Check: the visualizer moves without Wallpaper Engine; Explorer killed and restarted brings the
    wallpaper back; a fullscreen game pauses it (WebView2 process CPU near zero); two monitors with
    different DPI line up; icons stay clickable on top.
+
+### Phase 2 status (2026-11-14): the page and the music work, the rest is open
+
+`termwall host [--monitor N] [--seconds N] [--window]` (`src/host/`). It needs the stats server
+running, as the page does anywhere else.
+
+Done and seen working on Windows 11 build 26340, next to a running Wallpaper Engine:
+
+- The page in a WebView2 (through `wry`) behind the icons, one window per monitor, sized from the
+  monitor's rectangle in physical pixels. A `--seconds` run asks each page for its status line
+  and prints it: the page reported its layout, `screen 1` and fresh stats from the server.
+- Where the window goes turned out different from the description in step 1. On this build a
+  window of another process can't be moved into Progman with `SetParent` (access denied), and
+  Wallpaper Engine's own windows are children of the `WorkerW` that is a child of Progman. The
+  host creates its window as a child of that `WorkerW` from the start, on top of its siblings
+  (so it covers Wallpaper Engine's wallpaper on that monitor while it runs). The older layout
+  (top-level `WorkerW`) uses the same code path and is untested.
+- Wallpaper Engine's web API for the page (`src/host/we_api.js`): the audio listener and the five
+  media listeners can be registered; only audio is fed so far.
+- Audio (`src/host/audio.rs`): WASAPI loopback, 2048-sample Hann window, own FFT, 64 bands per
+  channel, about 30 frames a second while something plays, two a second of zeros while nothing
+  does, no capture at all while no screen has `visualizer` on. With music playing the page's
+  status read `audio` and its spectrum bars were drawn (94 % for the bass bars at one moment).
+  What differs from step 6:
+  - Bands are equal-width up to 20 kHz, not log-spaced: Wallpaper Engine doesn't document its
+    layout, and the page's bar mapping and treble lift were tuned against data shaped like that.
+    Unverified against Wallpaper Engine itself; a test tone through it would settle it.
+  - An automatic gain: the loudest band sits near 0.9 whatever the system volume.
+  - Which device: the default one while it plays, else the loudest one that does. With a mixer
+    that spreads programs over virtual devices (SteelSeries Sonar here) the music was not on
+    the default device, and Wallpaper Engine, set to one fixed device, heard silence.
+  - Frames go to the page with `ExecuteScript`, not `PostWebMessageAsJson` (what `wry` offers
+    directly); the cost of that is not measured yet.
+
+A trap for testing: a program started from a folder that carries a Low integrity label runs at
+Low integrity and may not create windows inside Explorer's (access denied), nor write to
+`%TEMP%`. `icacls <folder>` shows such a label. Run test builds from a folder without one.
+
+New dependencies, Windows only: `wry` (the WebView2 plumbing; `default-features = false`, so no
+GTK or tao) and `windows` (COM interfaces for WASAPI, the version `wry` already brings in).
+
+Open: now playing (step 7), Explorer restart (step 3), pause under a fullscreen app (step 4),
+display and DPI changes (the rest of step 2), the server and the host in one process, an
+`--audio-device` override, CPU and memory next to Wallpaper Engine, a manifest in the exe.
+With the GNU toolchain `WebView2Loader.dll` has to sit next to the exe; MSVC links it in.
 
 ## Phase 3: Linux host
 

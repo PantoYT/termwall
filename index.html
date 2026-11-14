@@ -1132,7 +1132,7 @@ function audioTag(){
   if (!style.visualizer || style.visualizer === "off") return "";
   const now = performance.now();
   if (!window.wallpaperRegisterAudioListener && !DEMO) return ` · <span class="d">♪ not in Wallpaper Engine</span>`;
-  if (now - VIZ.heard > 2000) return ` · <span class="bad">♪</span> <span class="d">no audio from WE</span>`;
+  if (now - VIZ.heard > 2000) return ` · <span class="bad">♪</span> <span class="d">no audio from ${window.__termwallHost ? "termwall's host" : "WE"}</span>`;
   if (now - VIZ.loud > 2000) return ` · <span class="d">♪ silence</span>`;
   return ` · <span class="ok">♪</span> audio`;
 }

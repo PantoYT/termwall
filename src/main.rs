@@ -5,6 +5,7 @@
 //! (index.html) is the same one Wallpaper Engine and Lively show.
 
 mod gpu;
+mod host;
 mod http;
 mod integrate;
 mod logos;
@@ -47,6 +48,8 @@ const USAGE: &str = "termwall - a live system-stats wallpaper (github.com/PantoY
                                  used as logo = \"custom\" with its colors in logo_colors. Options:
                                  --width N (40), --ascii, --colors N (1-9), --keep-bg,
                                  --out FILE (write only that file), --force (overwrite logo.txt)
+  termwall host [--monitor N]    the page as the desktop background, behind the icons, without
+                                 Wallpaper Engine (--window: in a window; --seconds N: quit after)
   termwall --once                print one sample
   termwall --selftest            run the self-test
   termwall --link-we | --unlink-we | --link-lively | --unlink-lively
@@ -54,7 +57,8 @@ const USAGE: &str = "termwall - a live system-stats wallpaper (github.com/PantoY
   termwall --version
 ";
 
-const OPTIONS: [&str; 17] = [
+const OPTIONS: [&str; 18] = [
+    "--host",
     "--selftest",
     "--version",
     "--link-we",
@@ -90,6 +94,7 @@ fn word(arg: &str) -> Option<&'static str> {
         "selftest" => "--selftest",
         "share" => "--share",
         "update" => "--update",
+        "host" => "--host",
         _ => return None,
     })
 }
@@ -377,6 +382,8 @@ fn main() {
         }
     } else if has("--style") {
         cmd_style(&after(&args, "--style"), p)
+    } else if has("--host") {
+        host::cmd_host(&after(&args, "--host"), p)
     } else if has("--once") {
         cmd_once()
     } else {
