@@ -17,6 +17,7 @@
 use std::cell::RefCell;
 use std::mem::{size_of, zeroed};
 use std::num::NonZeroIsize;
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::ptr::{null, null_mut};
 use std::sync::Mutex;
@@ -552,7 +553,7 @@ pub fn run(opts: &Options, paths: &Paths) -> i32 {
             })
     };
     let frames = AtomicUsize::new(0);
-    audio::capture::spawn(wanted, move |frame| {
+    audio::capture::spawn(opts.audio_device.clone(), wanted, move |frame| {
         *AUDIO.lock().unwrap_or_else(|e| e.into_inner()) = *frame;
         // a --seconds run says once a second what it hears: the loudest band and how loud
         if test_run && frames.fetch_add(1, Ordering::Relaxed).is_multiple_of(30) {
@@ -602,4 +603,65 @@ pub fn run(opts: &Options, paths: &Paths) -> i32 {
     }
     unsafe { DestroyWindow(control) };
     0
+}
+
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_VALUE: &str = "termwall-host";
+
+/// The command line for the autostart: termwallw (no console window) from this binary's folder.
+pub fn autostart_command(exe_dir: &std::path::Path, opts: &Options) -> String {
+    let w = exe_dir.join("termwallw.exe");
+    let exe = if w.is_file() { w } else { std::env::current_exe().unwrap_or(w) };
+    let mut cmd = format!("\"{}\" host", exe.display());
+    if let Some(n) = opts.monitor {
+        cmd += &format!(" --monitor {n}");
+    }
+    if let Some(d) = &opts.audio_device {
+        cmd += &format!(" --audio-device \"{}\"", d.replace('"', ""));
+    }
+    cmd
+}
+
+/// `termwall host on|off`: the Run entry for the logon, and the host itself started or stopped now.
+pub fn autostart(on: bool, opts: &Options) -> i32 {
+    use crate::platform::reg;
+    let dir = std::env::current_exe().ok().and_then(|p| p.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
+    let stopped = stop_hosts(&dir);
+    if !on {
+        let had = reg::read(reg::HKCU, RUN_KEY, RUN_VALUE).is_some();
+        if had && !reg::delete_value(reg::HKCU, RUN_KEY, RUN_VALUE) {
+            eprintln!("could not remove the autostart entry");
+            return 1;
+        }
+        println!("host: off ({stopped} stopped{})", if had { ", autostart removed" } else { "" });
+        return 0;
+    }
+    let cmd = autostart_command(&dir, opts);
+    if !reg::set_string(reg::HKCU, RUN_KEY, RUN_VALUE, &cmd) {
+        eprintln!("could not write the autostart entry");
+        return 1;
+    }
+    // started through the shell so it outlives this terminal
+    let started = std::process::Command::new("cmd").args(["/c", "start", "", "/b"]).raw_arg(&cmd).spawn().is_ok();
+    println!("host: on, at every logon: {cmd}{}", if started { "" } else { " (could not start it now)" });
+    0
+}
+
+/// Stop the hosts running from this folder (termwall or termwallw with `host` as the command).
+fn stop_hosts(dir: &std::path::Path) -> usize {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let Ok(mut sys) = System::new() else { return 0 };
+    let kind = ProcessRefreshKind::nothing().with_exe(UpdateKind::Always).with_cmd(UpdateKind::Always);
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+    let me = std::process::id();
+    let mut n = 0;
+    for p in sys.processes().values() {
+        let ours = p.exe().is_some_and(|e| e.parent() == Some(dir));
+        let host = p.cmd().get(1).is_some_and(|a| a == "host" || a == "--host");
+        let turning = p.cmd().iter().any(|a| a == "on" || a == "off");
+        if p.pid().as_u32() != me && ours && host && !turning && p.kill() {
+            n += 1;
+        }
+    }
+    n
 }

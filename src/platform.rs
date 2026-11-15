@@ -47,7 +47,7 @@ pub mod reg {
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
     use windows_sys::Win32::System::Registry::{
         HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_DWORD, REG_EXPAND_SZ, REG_QWORD, REG_SZ,
-        RRF_RT_ANY, RegCloseKey, RegGetValueW, RegOpenKeyExW,
+        RRF_RT_ANY, RegCloseKey, RegDeleteKeyValueW, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW,
     };
 
     pub const HKLM: HKEY = HKEY_LOCAL_MACHINE;
@@ -90,6 +90,20 @@ pub mod reg {
             }
             _ => None,
         }
+    }
+
+    /// Write a string value (the key has to exist). False when Windows refuses.
+    pub fn set_string(root: HKEY, subkey: &str, name: &str, value: &str) -> bool {
+        let (k, n, v) = (wide(subkey), wide(name), wide(value));
+        // SAFETY: NUL-terminated strings; the size is the value's bytes with its terminator.
+        let rc = unsafe { RegSetKeyValueW(root, k.as_ptr(), n.as_ptr(), REG_SZ, v.as_ptr().cast(), (v.len() * 2) as u32) };
+        rc == ERROR_SUCCESS
+    }
+
+    pub fn delete_value(root: HKEY, subkey: &str, name: &str) -> bool {
+        let (k, n) = (wide(subkey), wide(name));
+        // SAFETY: NUL-terminated strings.
+        unsafe { RegDeleteKeyValueW(root, k.as_ptr(), n.as_ptr()) == ERROR_SUCCESS }
     }
 
     pub fn key_exists(root: HKEY, subkey: &str) -> bool {

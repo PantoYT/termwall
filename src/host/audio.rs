@@ -213,10 +213,19 @@ pub mod capture {
     /// else the default one. The meters are read for a quarter of a second (a beat's gap is
     /// not silence).
     /// SAFETY: COM calls on this thread's own interfaces.
-    unsafe fn pick(enumerator: &IMMDeviceEnumerator) -> windows::core::Result<IMMDevice> {
+    unsafe fn pick(enumerator: &IMMDeviceEnumerator, named: Option<&str>) -> windows::core::Result<IMMDevice> {
         unsafe {
             let default = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
             let all = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
+            // --audio-device: the first device whose name contains that text, whatever plays where
+            if let Some(want) = named.map(str::to_lowercase) {
+                for i in 0..all.GetCount()? {
+                    let d = all.Item(i)?;
+                    if device_name(&device_id(&d)?).to_lowercase().contains(&want) {
+                        return Ok(d);
+                    }
+                }
+            }
             let mut devices = vec![default.clone()];
             for i in 0..all.GetCount()? {
                 devices.push(all.Item(i)?);
@@ -245,7 +254,11 @@ pub mod capture {
     /// Capture on a thread of its own for as long as `wanted()` says so (asked every two seconds:
     /// no visualizer on any screen means no capture at all). `on_frame` gets about 30 frames a
     /// second while something plays and two a second of zeros while nothing does.
-    pub fn spawn(wanted: impl Fn() -> bool + Send + 'static, on_frame: impl Fn(&[f32; BANDS * 2]) + Send + 'static) {
+    pub fn spawn(
+        named: Option<String>,
+        wanted: impl Fn() -> bool + Send + 'static,
+        on_frame: impl Fn(&[f32; BANDS * 2]) + Send + 'static,
+    ) {
         let run = move || {
             // SAFETY: COM for this thread only; the interfaces never leave it.
             unsafe {
@@ -255,7 +268,7 @@ pub mod capture {
             loop {
                 if wanted() {
                     // SAFETY: see capture_one.
-                    if let Err(e) = unsafe { capture_one(&wanted, &on_frame, &mut device) } {
+                    if let Err(e) = unsafe { capture_one(named.as_deref(), &wanted, &on_frame, &mut device) } {
                         let msg = e.to_string();
                         if msg != said {
                             eprintln!("audio: {msg}");
@@ -277,13 +290,14 @@ pub mod capture {
     /// SAFETY: plain COM calls on interfaces owned by this function; buffers are read within the
     /// bounds WASAPI reports and released before the next call.
     unsafe fn capture_one(
+        named: Option<&str>,
         wanted: &dyn Fn() -> bool,
         on_frame: &dyn Fn(&[f32; BANDS * 2]),
         listening: &mut String,
     ) -> windows::core::Result<()> {
         unsafe {
             let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-            let device = pick(&enumerator)?;
+            let device = pick(&enumerator, named)?;
             let id = device_id(&device)?;
             if *listening != id {
                 println!("audio: listening on {}", device_name(&id));
@@ -358,7 +372,7 @@ pub mod capture {
                         break;
                     }
                     // quiet here for two seconds: is the music (now) somewhere else?
-                    if now.duration_since(heard) >= Duration::from_secs(2) && device_id(&pick(&enumerator)?)? != id {
+                    if now.duration_since(heard) >= Duration::from_secs(2) && device_id(&pick(&enumerator, named)?)? != id {
                         break;
                     }
                 }

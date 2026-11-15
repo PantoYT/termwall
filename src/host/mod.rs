@@ -16,15 +16,22 @@ mod windows;
 #[cfg_attr(not(windows), allow(dead_code))] // the Linux host (phase 3) will use it too
 pub const WE_API: &str = include_str!("we_api.js");
 
-pub const USAGE: &str = "termwall host [--monitor N] [--seconds N] [--window]
+pub const USAGE: &str = "termwall host [--monitor N] [--audio-device NAME] [--seconds N] [--window]
   the page as the desktop background on every monitor (or only monitor N, 1 = the main one),
-  behind the icons; --window shows it in an ordinary window instead; --seconds quits after N";
+  behind the icons; --window shows it in an ordinary window instead; --seconds quits after N.
+  The visualizer hears the default playback device, or the one that plays when that is silent;
+  --audio-device NAME fixes it to the device whose name contains NAME.
+termwall host on [--monitor N] [--audio-device NAME]
+  start it now and at every logon; termwall host off stops it and removes the autostart";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Options {
     pub monitor: Option<usize>,
     pub seconds: Option<u64>,
     pub window: bool,
+    pub audio_device: Option<String>,
+    /// `host on` / `host off`: the autostart, instead of running here.
+    pub autostart: Option<bool>,
 }
 
 pub fn parse(args: &[String]) -> Result<Options, String> {
@@ -41,6 +48,10 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             "--monitor" => o.monitor = Some(number("--monitor")? as usize),
             "--seconds" => o.seconds = Some(number("--seconds")?),
             "--window" => o.window = true,
+            "--audio-device" => {
+                o.audio_device = Some(it.next().filter(|v| !v.is_empty()).ok_or("--audio-device takes a name")?.clone())
+            }
+            "on" | "off" if o.autostart.is_none() => o.autostart = Some(a == "on"),
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -104,6 +115,9 @@ pub fn cmd_host(args: &[String], paths: &Paths) -> i32 {
     };
     #[cfg(windows)]
     {
+        if let Some(on) = opts.autostart {
+            return windows::autostart(on, &opts);
+        }
         if let Err(e) = ensure_server(paths) {
             eprintln!("{e}");
             return 1;
@@ -127,9 +141,13 @@ mod tests {
         let a = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         assert_eq!(
             parse(&a(&["--monitor", "2", "--seconds", "15"])),
-            Ok(Options { monitor: Some(2), seconds: Some(15), window: false })
+            Ok(Options { monitor: Some(2), seconds: Some(15), ..Default::default() })
         );
         assert_eq!(parse(&a(&["--window"])).map(|o| o.window), Ok(true));
+        let on = parse(&a(&["on", "--monitor", "1", "--audio-device", "Head phones"])).expect("host on");
+        assert_eq!((on.autostart, on.monitor, on.audio_device.as_deref()), (Some(true), Some(1), Some("Head phones")));
+        assert_eq!(parse(&a(&["off"])).map(|o| o.autostart), Ok(Some(false)));
+        assert!(parse(&a(&["on", "off"])).is_err() && parse(&a(&["--audio-device"])).is_err());
         assert!(parse(&a(&["--monitor", "0"])).is_err() && parse(&a(&["--nope"])).is_err() && parse(&a(&["--seconds"])).is_err());
         assert_eq!(
             page_url(Path::new(r"E:\My Files\termwall\index.html"), 2),

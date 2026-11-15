@@ -52,6 +52,9 @@ Source: "..\build\stage\*"; DestDir: "{app}"; Flags: recursesubdirs createallsub
 ; the stats server at logon, no console window
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "termwall"; \
   ValueData: """{app}\termwallw.exe"""; Flags: uninsdeletevalue
+; termwall host on writes this one; the uninstaller takes it away
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "termwall-host"; \
+  Flags: uninsdeletevalue dontcreatekey
 
 [Run]
 ; Wallpaper Engine lists termwall from a junction in its projects folder (skipped if WE isn't there)

@@ -12,6 +12,7 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;background:var(--bg);overflow:hidden}
+body.wait > *{visibility:hidden}
 /* bundled fonts (SIL OFL 1.1, licenses in fonts/), so every "font" works without installing one */
 @font-face{font-family:"tw JetBrains Mono";src:url(fonts/JetBrainsMono-Regular.woff2) format("woff2");font-weight:400}
 @font-face{font-family:"tw JetBrains Mono";src:url(fonts/JetBrainsMono-Bold.woff2) format("woff2");font-weight:700}
@@ -243,6 +244,9 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
 </style>
 </head>
 <body class="L-fetch">
+<!-- nothing shows until the server has said which layout this screen has (or 1.5 s passed):
+     a second monitor set to another layout no longer flashes the default one first -->
+<script>if (!/[?&]demo/.test(location.search)) { document.body.classList.add("wait"); setTimeout(() => document.body.classList.remove("wait"), 1500); }</script>
 <div id="stage">
   <div class="fxl" id="fx-roll"></div><div class="fxl" id="fx-curve"></div><div class="fxl" id="fx-noise"></div>
 
@@ -1002,7 +1006,7 @@ async function pollTheme(){
     const r = await fetch(withToken(API.replace(/stats$/, "theme")), {cache: "no-store"});
     if (r.status === 403) { onForbidden(); return; }
     const s = await r.json();
-    if (!checkPage(s)) { serverTheme = s.theme; applyTheme(s.theme); applyStyle(s.style); }
+    if (!checkPage(s)) { serverTheme = s.theme; applyTheme(s.theme); applyStyle(s.style); document.body.classList.remove("wait"); }
   } catch (e) {}
 }
 if (!DEMO) setInterval(pollTheme, 250);

@@ -346,8 +346,8 @@ wrong twice, since a large window that leaves the desktop visible paused it (a b
 and under a maximized window a transparent taskbar showed black. A maximized window no longer
 pauses; freezing the picture instead of hiding it would let it pause there too.
 
-Open: the real-world checks named above, whether `termwall` without arguments starts the host, autostart, an
-`--audio-device` override, CPU and memory next to Wallpaper Engine, a manifest in the exe.
+Open: the real-world checks named above, whether `termwall` without arguments starts the host (`termwall host on` is the
+autostart for now, `--audio-device NAME` the override), CPU and memory next to Wallpaper Engine, a manifest in the exe.
 With the GNU toolchain `WebView2Loader.dll` has to sit next to the exe; MSVC links it in.
 
 ## Phase 3: Linux host

@@ -56,8 +56,10 @@ and run it. No admin rights, nothing else to install.
 (`--monitor N` for one, 1 = the main monitor). It brings what Wallpaper Engine gave the page: the music
 for the visualizer (whatever plays on the PC; with a mixer that spreads programs over several
 devices it follows the one that plays) and the track's title. A monitor covered by a fullscreen
-or maximized window pauses. It is not started at logon yet; Windows 11 only so far, tested on
-one machine. `termwall host --window` shows the same in an ordinary window.
+window pauses. `termwall host on` starts it now and at every logon (with the same `--monitor`
+and `--audio-device NAME`, which fixes the visualizer to one playback device), `termwall host
+off` stops it. Windows 11 only so far, tested on one machine. `termwall host --window` shows the
+same in an ordinary window.
 
 A winget package is in review; once it's accepted: `winget install PantoYT.termwall`.
 
