@@ -17,7 +17,7 @@ mod windows;
 pub const WE_API: &str = include_str!("we_api.js");
 
 pub const USAGE: &str = "termwall host [--monitor N] [--seconds N] [--window]
-  the page as the desktop background on every monitor (or only monitor N, 1 = leftmost),
+  the page as the desktop background on every monitor (or only monitor N, 1 = the main one),
   behind the icons; --window shows it in an ordinary window instead; --seconds quits after N";
 
 #[derive(Clone, Debug, Default, PartialEq)]

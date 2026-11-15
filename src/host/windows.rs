@@ -106,7 +106,7 @@ fn same_rect(a: &RECT, b: &RECT) -> bool {
     (a.left, a.top, a.right, a.bottom) == (b.left, b.top, b.right, b.bottom)
 }
 
-/// The monitors in physical pixels (the process is per-monitor DPI aware), left to right.
+/// The monitors in physical pixels (the process is per-monitor DPI aware), the main one first.
 fn monitors() -> Vec<RECT> {
     unsafe extern "system" fn each(m: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
         // SAFETY: data is the Vec passed below, alive for the whole enumeration.
@@ -121,7 +121,8 @@ fn monitors() -> Vec<RECT> {
     let mut found: Vec<RECT> = Vec::new();
     // SAFETY: the callback only touches `found` through the pointer it is given.
     unsafe { EnumDisplayMonitors(null_mut(), null(), Some(each), &mut found as *mut _ as LPARAM) };
-    found.sort_by_key(|r| (r.left, r.top));
+    // the main monitor (its corner is 0,0) is screen 1, the others follow from the left
+    found.sort_by_key(|r| ((r.left, r.top) != (0, 0), r.left, r.top));
     found
 }
 
@@ -146,7 +147,7 @@ fn covered(r: &RECT) -> bool {
     }
 }
 
-/// The monitors to cover, with their screen numbers (1 = leftmost).
+/// The monitors to cover, with their screen numbers (1 = the main monitor).
 fn chosen(opts: &Options) -> Vec<(usize, RECT)> {
     monitors().into_iter().enumerate().map(|(i, r)| (i + 1, r)).filter(|(n, _)| opts.monitor.is_none_or(|m| m == *n)).collect()
 }

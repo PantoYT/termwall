@@ -1,6 +1,6 @@
 [package]
 name = "termwall"
-version = "3.0.0"
+version = "3.0.1"
 edition = "2024"
 rust-version = "1.88"
 description = "A live system-stats wallpaper in the style of fastfetch: its own stats server and wallpaper host"

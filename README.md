@@ -53,7 +53,7 @@ and run it. No admin rights, nothing else to install.
 ### Without Wallpaper Engine or Lively (experimental)
 
 `termwall host` puts the page on the desktop itself, behind the icons, on every monitor
-(`--monitor N` for one, 1 = leftmost). It brings what Wallpaper Engine gave the page: the music
+(`--monitor N` for one, 1 = the main monitor). It brings what Wallpaper Engine gave the page: the music
 for the visualizer (whatever plays on the PC; with a mixer that spreads programs over several
 devices it follows the one that plays) and the track's title. A monitor covered by a fullscreen
 or maximized window pauses. It is not started at logon yet; Windows 11 only so far, tested on
