@@ -1,56 +1,49 @@
-# Builds build\termwall-setup-<version>.exe: termwall's files + an embeddable Python with psutil,
-# packed by Inno Setup. Runs locally (with Inno Setup installed) and in GitHub Actions.
+# Builds build\termwall-setup-<version>.exe: termwall.exe and termwallw.exe (cargo, release) with
+# the page, packed by Inno Setup. Runs locally (Rust and Inno Setup installed) and in GitHub Actions.
 #
 #     powershell -ExecutionPolicy Bypass -File installer\build.ps1
 #
-# The version comes from termwall_api.py (__version__). ISCC.exe is looked up on PATH and in
-# Inno Setup's usual folders; $env:ISCC overrides.
-
-param([string]$PythonVersion = '3.13.7')
+# The version comes from Cargo.toml. ISCC.exe is looked up on PATH and in Inno Setup's usual
+# folders; $env:ISCC overrides. The MSVC toolchain links WebView2's loader into the exe; with the
+# GNU toolchain WebView2Loader.dll is staged next to it.
 
 $ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
 $root = Split-Path $PSScriptRoot -Parent
 $build = Join-Path $root 'build'
 $stage = Join-Path $build 'stage'
-$py = Join-Path $stage 'python'
 
-$version = (Select-String -Path (Join-Path $root 'termwall_api.py') -Pattern '^__version__ = "(.+)"').Matches[0].Groups[1].Value
-Write-Host "termwall $version, Python $PythonVersion"
+$version = (Select-String -Path (Join-Path $root 'Cargo.toml') -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+Write-Host "termwall $version"
 
+# 1. the program
+Push-Location $root
+try {
+    cargo build --release --locked
+    if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
+} finally { Pop-Location }
+$target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root 'target' }
+$release = Join-Path $target 'release'
+
+# 2. the stage: what gets installed
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-New-Item -ItemType Directory -Force $py | Out-Null
-
-# 1. embeddable Python (python.org, signed by the PSF)
-$zip = Join-Path $build "python-$PythonVersion-embed-amd64.zip"
-if (-not (Test-Path $zip)) {
-    Invoke-WebRequest "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-embed-amd64.zip" -OutFile $zip -UseBasicParsing
+New-Item -ItemType Directory -Force $stage | Out-Null
+foreach ($f in 'termwall.exe', 'termwallw.exe') { Copy-Item (Join-Path $release $f) $stage }
+if (rustc -vV | Select-String 'host: .*-gnu') {
+    $loader = Get-ChildItem $release -Filter 'WebView2Loader.dll' -Recurse | Select-Object -First 1
+    if (-not $loader) { throw 'WebView2Loader.dll not found for the GNU build' }
+    Copy-Item $loader.FullName $stage
 }
-Expand-Archive $zip -DestinationPath $py
-# the embeddable build ignores site-packages until its ._pth file says otherwise
-$pth = Get-ChildItem $py -Filter 'python*._pth' | Select-Object -First 1
-$tag = $pth.BaseName                                             # e.g. python313
-Set-Content -Path $pth.FullName -Encoding ascii -Value @("$tag.zip", '.', 'Lib\site-packages', '..', 'import site')
-
-# 2. psutil for that Python, as a ready-made wheel (no compiler needed)
-$short = ($PythonVersion -split '\.')[0..1] -join '.'
-python -m pip install psutil --target (Join-Path $py 'Lib\site-packages') --only-binary=:all: `
-    --platform win_amd64 --python-version $short --implementation cp --quiet --disable-pip-version-check
-if ($LASTEXITCODE -ne 0) { throw 'pip could not fetch psutil' }
-
-# 3. termwall itself
-foreach ($f in 'index.html', 'logos.js', 'termwall_api.py', 'termwall.cmd', 'project.json', 'README.md', 'LICENSE', 'termwall-api.vbs') {
+foreach ($f in 'index.html', 'logos.js', 'project.json', 'README.md', 'LICENSE') {
     Copy-Item (Join-Path $root $f) $stage
 }
-foreach ($d in 'fonts') {  # bundled web fonts and their licenses
-    Copy-Item (Join-Path $root $d) $stage -Recurse
-}
+Copy-Item (Join-Path $root 'fonts') $stage -Recurse  # bundled web fonts and their licenses
 
-# 4. the bundled Python must really run termwall
-& (Join-Path $py 'python.exe') (Join-Path $stage 'termwall_api.py') --selftest
-if ($LASTEXITCODE -ne 0) { throw 'selftest failed with the bundled Python' }
+# 3. the staged program must really run
+& (Join-Path $stage 'termwall.exe') --selftest
+if ($LASTEXITCODE -ne 0) { throw 'selftest failed in the staged program' }
+Remove-Item (Join-Path $stage 'selftest-tmp') -Recurse -Force -ErrorAction SilentlyContinue
 
-# 5. Inno Setup
+# 4. Inno Setup
 $iscc = $env:ISCC
 if (-not $iscc) { $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source }
 foreach ($c in "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe",

@@ -1,5 +1,6 @@
-# Builds the Windows installer. A push of a tag v* also publishes it as a GitHub release
-# (winget's manifest points at that file); a manual run only keeps it as a build artifact.
+# Tests termwall and builds the Windows installer. A push of a tag v* also publishes it as a
+# GitHub release (winget's manifest points at that file); a manual run only keeps it as a build
+# artifact.
 name: installer
 
 on:
@@ -11,22 +12,31 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: windows-latest
+  linux:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      - name: cargo test
+        run: cargo test --locked
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - name: The Python version (still what the Linux package ships)
+        run: |
+          python -m pip install --quiet psutil
+          python termwall_api.py --selftest
+
+  build:
+    runs-on: windows-latest
+    needs: linux
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Inno Setup
         run: choco install innosetup --no-progress -y
 
-      - name: Selftest
-        run: |
-          python -m pip install --quiet psutil
-          python termwall_api.py --selftest
+      - name: cargo test
+        run: cargo test --locked
 
       - name: Build the installer
         shell: pwsh
@@ -40,19 +50,26 @@ jobs:
           (Start-Process $exe.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru).WaitForExit()
           $app = Join-Path $env:LOCALAPPDATA 'Programs\termwall'
           if (-not (Test-Path "$app\index.html")) { throw "nothing installed in $app" }
-          & "$app\python\python.exe" "$app\termwall_api.py" --version
-          & "$app\termwall.cmd" --version
-          if ($LASTEXITCODE -ne 0) { throw 'termwall.cmd failed' }
+          if (Test-Path "$app\python") { throw 'the installer still ships a Python' }
+          & "$app\termwall.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw 'termwall.exe failed' }
           if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $app) { throw 'not on PATH' }
           Start-Sleep 4
+          if (-not (Get-Process termwallw -ErrorAction SilentlyContinue)) { throw 'termwallw (the server) is not running after install' }
           $ok = $false
           try { Invoke-WebRequest 'http://127.0.0.1:9002/theme' -UseBasicParsing | Out-Null } catch { $ok = $_.Exception.Response.StatusCode.value__ -eq 403 }
           if (-not $ok) { throw 'the stats server did not answer after install' }
           $h = Invoke-RestMethod 'http://127.0.0.1:9002/health'
           if (-not $h.termwall) { throw '/health did not answer without a token' }
+          $t = (Get-Content "$app\token.js" -Raw) -replace '(?s).*"(.+)".*', '$1'
+          $s = Invoke-RestMethod "http://127.0.0.1:9002/stats?t=$t"
+          if (-not $s.cpu_model -or $s.cores -lt 1) { throw '/stats has no data' }
+          & "$app\termwall.exe" --stop
+          Start-Sleep 2
+          if (Get-Process termwallw -ErrorAction SilentlyContinue) { throw '--stop left the server running' }
           (Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -PassThru).WaitForExit()
           Start-Sleep 5  # the uninstaller hands off to a temp copy of itself, which finishes the job
-          if (Test-Path "$app\termwall_api.py") { throw 'uninstall left files behind' }
+          if (Test-Path "$app\termwall.exe") { throw 'uninstall left files behind' }
 
       - uses: actions/upload-artifact@v4
         with:

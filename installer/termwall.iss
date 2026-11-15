@@ -1,5 +1,6 @@
-; termwall installer (Inno Setup 6). Built by installer\build.ps1, which stages the files and
-; an embeddable Python with psutil into build\stage first. Per-user install, no admin rights:
+; termwall installer (Inno Setup 6). Built by installer\build.ps1, which builds termwall.exe and
+; termwallw.exe (the same program without a console window) and stages them with the page into
+; build\stage first. Per-user install, no admin rights:
 ; %LOCALAPPDATA%\Programs\termwall. Silent installs (winget) work with /VERYSILENT.
 
 #ifndef AppVersion
@@ -28,7 +29,7 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName=termwall
-UninstallDisplayIcon={app}\python\pythonw.exe
+UninstallDisplayIcon={app}\termwall.exe
 CloseApplications=force
 ChangesEnvironment=yes
 RestartApplications=no
@@ -36,25 +37,33 @@ RestartApplications=no
 [Messages]
 FinishedLabel=Setup has finished installing [name] on your computer.%n%nThe termwall command works in terminals opened from now on: close every open terminal window (all of Windows Terminal, not just a tab) and open a new one.
 
+[InstallDelete]
+; an update from 2.x, which ran on its own Python: that Python and the script go
+Type: filesandordirs; Name: "{app}\python"
+Type: filesandordirs; Name: "{app}\__pycache__"
+Type: files; Name: "{app}\termwall_api.py"
+Type: files; Name: "{app}\termwall.cmd"
+Type: files; Name: "{app}\termwall-api.vbs"
+
 [Files]
 Source: "..\build\stage\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Registry]
 ; the stats server at logon, no console window
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "termwall"; \
-  ValueData: """{app}\python\pythonw.exe"" ""{app}\termwall_api.py"""; Flags: uninsdeletevalue
+  ValueData: """{app}\termwallw.exe"""; Flags: uninsdeletevalue
 
 [Run]
 ; Wallpaper Engine lists termwall from a junction in its projects folder (skipped if WE isn't there)
-Filename: "{app}\python\python.exe"; Parameters: """{app}\termwall_api.py"" --link-we"; Flags: runhidden waituntilterminated
+Filename: "{app}\termwall.exe"; Parameters: "--link-we"; Flags: runhidden waituntilterminated
 ; and Lively Wallpaper's library (skipped if Lively isn't there)
-Filename: "{app}\python\python.exe"; Parameters: """{app}\termwall_api.py"" --link-lively"; Flags: runhidden waituntilterminated
-Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\termwall_api.py"""; Flags: runhidden nowait
+Filename: "{app}\termwall.exe"; Parameters: "--link-lively"; Flags: runhidden waituntilterminated
+Filename: "{app}\termwallw.exe"; Flags: nowait
 
 [UninstallRun]
-Filename: "{app}\python\python.exe"; Parameters: """{app}\termwall_api.py"" --stop"; Flags: runhidden waituntilterminated; RunOnceId: "stop"
-Filename: "{app}\python\python.exe"; Parameters: """{app}\termwall_api.py"" --unlink-we"; Flags: runhidden waituntilterminated; RunOnceId: "unlinkwe"
-Filename: "{app}\python\python.exe"; Parameters: """{app}\termwall_api.py"" --unlink-lively"; Flags: runhidden waituntilterminated; RunOnceId: "unlinklively"
+Filename: "{app}\termwall.exe"; Parameters: "--stop"; Flags: runhidden waituntilterminated; RunOnceId: "stop"
+Filename: "{app}\termwall.exe"; Parameters: "--unlink-we"; Flags: runhidden waituntilterminated; RunOnceId: "unlinkwe"
+Filename: "{app}\termwall.exe"; Parameters: "--unlink-lively"; Flags: runhidden waituntilterminated; RunOnceId: "unlinklively"
 
 [UninstallDelete]
 Type: files; Name: "{app}\token.js"
@@ -63,13 +72,13 @@ Type: files; Name: "{app}\termwall.json"
 Type: files; Name: "{app}\termwall.json.old"
 Type: files; Name: "{app}\termwall.toml"
 Type: files; Name: "{app}\share.json"
-Type: filesandordirs; Name: "{app}\__pycache__"
+Type: filesandordirs; Name: "{app}\selftest-tmp"
 
 [Code]
 const
   EnvKey = 'Environment';
 
-// `termwall` in new terminals: {app} on the user's PATH (termwall.cmd lives there)
+// `termwall` in new terminals: {app} on the user's PATH (termwall.exe lives there)
 procedure PathAdd(Dir: string);
 var
   Paths: string;
@@ -104,12 +113,15 @@ begin
   if CurUninstallStep = usPostUninstall then PathRemove(ExpandConstant('{app}'));
 end;
 
-// An update replaces python.exe and friends: stop the running server of this install first.
+// An update replaces the running program: stop this install's server first. A 2.x install is
+// stopped with its own Python.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
 begin
   Result := '';
+  if FileExists(ExpandConstant('{app}\termwall.exe')) then
+    Exec(ExpandConstant('{app}\termwall.exe'), '--stop', '', SW_HIDE, ewWaitUntilTerminated, Code);
   if FileExists(ExpandConstant('{app}\python\python.exe')) then
     Exec(ExpandConstant('{app}\python\python.exe'), '"' + ExpandConstant('{app}\termwall_api.py') + '" --stop',
          '', SW_HIDE, ewWaitUntilTerminated, Code);

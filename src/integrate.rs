@@ -227,7 +227,13 @@ pub fn stop_running(here: &Path) -> usize {
         if p.pid().as_u32() == me {
             continue;
         }
-        let exe_match = my_exe.as_ref().is_some_and(|mine| p.exe().and_then(|e| fs::canonicalize(e).ok()).as_ref() == Some(mine));
+        // this binary or its twin without a console (termwall.exe / termwallw.exe), in this folder
+        let exe_match = my_exe.as_ref().is_some_and(|mine| {
+            p.exe().and_then(|e| fs::canonicalize(e).ok()).is_some_and(|theirs| {
+                let stem = theirs.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+                theirs.parent() == mine.parent() && (stem == "termwall" || stem == "termwallw")
+            })
+        });
         let py_match = script.as_ref().is_some_and(|s| {
             p.cmd().iter().skip(1).any(|a| {
                 let a = a.to_string_lossy();
