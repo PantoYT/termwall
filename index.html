@@ -13,6 +13,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;background:var(--bg);overflow:hidden}
 body.wait > *{visibility:hidden}
+body.paused *, body.paused *::before, body.paused *::after{animation-play-state:paused !important}
 /* bundled fonts (SIL OFL 1.1, licenses in fonts/), so every "font" works without installing one */
 @font-face{font-family:"tw JetBrains Mono";src:url(fonts/JetBrainsMono-Regular.woff2) format("woff2");font-weight:400}
 @font-face{font-family:"tw JetBrains Mono";src:url(fonts/JetBrainsMono-Bold.woff2) format("woff2");font-weight:700}
@@ -394,7 +395,17 @@ const SHARE = window.TERMWALL_SHARE === true;
 // Wallpaper Engine: the "termwall screen" property (project.json), set per monitor in WE;
 // the server answers with that monitor's [screen.N] settings
 let SCREEN = /^\d{1,2}$/.test(new URLSearchParams(location.search).get("screen") || "") ? new URLSearchParams(location.search).get("screen") : null;
-window.wallpaperPropertyListener = {applyUserProperties(p){ if (p.screen) { SCREEN = String(p.screen.value); styleKey = ""; if (!DEMO) pollTheme(); } }};
+// Paused (Wallpaper Engine and termwall's host call setPaused when a window covers the wallpaper):
+// the picture stays as it is, and nothing is asked, drawn or animated until it is seen again.
+let PAUSED = false;
+window.wallpaperPropertyListener = {
+  applyUserProperties(p){ if (p.screen) { SCREEN = String(p.screen.value); styleKey = ""; if (!DEMO) pollTheme(); } },
+  setPaused(p){
+    if (PAUSED === !!p) return;
+    PAUSED = !!p;
+    document.body.classList.toggle("paused", PAUSED);
+    if (!PAUSED) { tick(); if (!DEMO) { pollTheme(); poll(); } requestAnimationFrame(eqFrame); }
+  }};
 function withToken(url){ return url + "?t=" + TOKEN + (SCREEN ? "&screen=" + SCREEN : ""); }
 // API restarted → new token → 403. A plain reload can get token.js back from the cache (old token,
 // "connecting" for good), so first read it again past the cache: a script tag with a query works
@@ -927,6 +938,7 @@ function applyTheme(t){
 
 let failures = 0, pageVersion = null;
 async function poll(){
+  if (PAUSED) return;
   try {
     const r = await fetch(withToken(API), {cache: "no-store"});
     if (r.status === 403) { onForbidden(); return; }
@@ -1002,6 +1014,7 @@ function checkPage(s){
 }
 // Palette and look checked 4×/s through the tiny /theme endpoint — stats stay at 1/s.
 async function pollTheme(){
+  if (PAUSED) return;
   try {
     const r = await fetch(withToken(API.replace(/stats$/, "theme")), {cache: "no-store"});
     if (r.status === 403) { onForbidden(); return; }
@@ -1087,6 +1100,7 @@ function drawViz(){
 // louder of the two channels, fast up and slow down; the peak follows the music so quiet songs still move
 // (layout logo draws straight from this, on every packet from WE)
 function onAudio(a, fake){
+  if (PAUSED) return;
   let mx = 0, mt = 0, raw = 0;
   for (let i = 0; i < 128; i++) raw = Math.max(raw, a[i] || 0);
   if (!fake) { VIZ.heard = performance.now(); if (raw > 0.001) VIZ.loud = VIZ.heard; }
@@ -1121,6 +1135,7 @@ function eqTargets(n){
   return out;
 }
 function eqFrame(now){
+  if (PAUSED) return;  // setPaused(false) starts the loop again
   requestAnimationFrame(eqFrame);
   const dt = Math.min(0.1, (now - (VIZ.frame || now)) / 1000); VIZ.frame = now;
   if (!dt || !vizOn() || currentLayout() !== "fetch" || !["bars", "both"].includes(style.visualizer)) return;
@@ -1156,7 +1171,7 @@ function blockGlyph(ch){
   return `<svg viewBox="0 0 3 5" shape-rendering="crispEdges"><path class="on" d="${d}"/></svg>`;
 }
 function clockHTML(hhmm){ return [...hhmm].map(blockGlyph).join(""); }
-function tick(){ const n = new Date();
+function tick(){ if (PAUSED) return; const n = new Date();
   showLayout();
   const h12 = style.clock === "12h";
   let h = n.getHours();

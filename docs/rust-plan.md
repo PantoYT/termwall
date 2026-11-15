@@ -343,8 +343,10 @@ every monitor; when that window covers the whole monitor, taskbar included (a fu
 video), the monitor's WebView2 is hidden, and shown again afterwards. With every page paused the
 music isn't captured either. A first version paused under any window covering nine sample points:
 wrong twice, since a large window that leaves the desktop visible paused it (a black desktop),
-and under a maximized window a transparent taskbar showed black. A maximized window no longer
-pauses; freezing the picture instead of hiding it would let it pause there too.
+and under a maximized window a transparent taskbar showed black. Since 3.0.2 nothing is hidden:
+the host calls the page's `wallpaperPropertyListener.setPaused` (Wallpaper Engine's own call),
+the page stops its timers, its animation frames and its CSS animations and keeps its picture,
+so a maximized window pauses it too and a transparent taskbar shows the frozen wallpaper.
 
 Open: the real-world checks named above, whether `termwall` without arguments starts the host (`termwall host on` is the
 autostart for now, `--audio-device NAME` the override), CPU and memory next to Wallpaper Engine, a manifest in the exe.

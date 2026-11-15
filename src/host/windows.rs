@@ -32,8 +32,8 @@ use windows_sys::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, 
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GA_ROOT,
     GWL_EXSTYLE, GetAncestor, GetClassNameW, GetMessageW, GetParent, GetWindowLongPtrW, GetWindowRect, HWND_TOP, IsWindow,
-    KillTimer, LWA_ALPHA, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SMTO_NORMAL, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SendMessageTimeoutW, SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow,
+    IsZoomed, KillTimer, LWA_ALPHA, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SMTO_NORMAL, SW_SHOWNOACTIVATE,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SendMessageTimeoutW, SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow,
     TranslateMessage, WM_APP, WM_DESTROY, WM_TIMER, WNDCLASSW, WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE, WindowFromPoint,
 };
@@ -79,6 +79,7 @@ const STATUS_JS: &str = r#"(() => {
       .map(e => Math.round(parseFloat((e.style.height.match(/([\d.]+)%/) || [0, 0])[1])));
     out += ' | spectrum bars % ' + (bars.length ? bars.join(' ') : '(none drawn)');
   }
+  if (document.body.classList.contains('paused')) out += ' | frozen';
   return out;
 })()"#;
 
@@ -101,6 +102,13 @@ fn class_of(hwnd: HWND) -> String {
     // SAFETY: the buffer's length is passed along.
     let n = unsafe { GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
     String::from_utf16_lossy(&buf[..n.max(0) as usize])
+}
+
+/// The page's own pause switch (index.html: wallpaperPropertyListener.setPaused).
+fn pause_script(paused: bool) -> String {
+    format!(
+        "window.wallpaperPropertyListener&&window.wallpaperPropertyListener.setPaused&&window.wallpaperPropertyListener.setPaused({paused})"
+    )
 }
 
 fn same_rect(a: &RECT, b: &RECT) -> bool {
@@ -127,10 +135,9 @@ fn monitors() -> Vec<RECT> {
     found
 }
 
-/// One window covers this whole monitor, taskbar and all (a fullscreen game or video): nobody
-/// sees the page, so it can stop drawing. A maximized window is not that: the taskbar is still
-/// there, and a transparent one shows the wallpaper through it. Nor is a big window with the
-/// desktop showing around it.
+/// The wallpaper on this monitor is out of sight: the window in the middle of it is maximized, or
+/// covers the whole monitor (a fullscreen game or video). A big window with the desktop showing
+/// around it doesn't count.
 fn covered(r: &RECT) -> bool {
     let center = POINT { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
     // SAFETY: plain queries about windows on screen.
@@ -144,7 +151,12 @@ fn covered(r: &RECT) -> bool {
             return false;
         }
         let mut w: RECT = zeroed();
-        GetWindowRect(top, &mut w) != 0 && w.left <= r.left && w.top <= r.top && w.right >= r.right && w.bottom >= r.bottom
+        IsZoomed(top) != 0
+            || (GetWindowRect(top, &mut w) != 0
+                && w.left <= r.left
+                && w.top <= r.top
+                && w.right >= r.right
+                && w.bottom >= r.bottom)
     }
 }
 
@@ -348,8 +360,10 @@ impl Host {
                 .any(|((n, r, hwnd), (wn, wr))| n != wn || !same_rect(r, wr) || unsafe { IsWindow(*hwnd) } == 0)
     }
 
-    /// Pause the pages nobody can see, wake the ones uncovered again. A hidden WebView2 stops
-    /// drawing and its timers slow down; the window behind it keeps the page's background color.
+    /// Freeze the pages nobody can see, wake the ones uncovered again. A frozen page keeps its
+    /// picture (a transparent taskbar still shows the wallpaper) and stops asking, drawing and
+    /// animating: the page's own setPaused, the call Wallpaper Engine makes too. Hiding the
+    /// WebView2 instead left the desktop black wherever it showed.
     fn cover(&mut self) {
         for (screen, r, _) in &self.built {
             let (hide, was) = (covered(r), self.paused.contains(screen));
@@ -358,7 +372,7 @@ impl Host {
             }
             VIEWS.with(|v| {
                 if let Some((_, view)) = v.borrow().iter().find(|(n, _)| n == screen) {
-                    let _ = view.set_visible(!hide);
+                    let _ = view.evaluate_script(&pause_script(hide));
                 }
             });
             if hide {
@@ -366,7 +380,7 @@ impl Host {
             } else {
                 self.paused.retain(|n| n != screen);
             }
-            println!("screen {screen}: {}", if hide { "covered by a fullscreen window, paused" } else { "uncovered, running" });
+            println!("screen {screen}: {}", if hide { "covered by a window, frozen" } else { "uncovered, running" });
         }
         ALL_PAUSED.store(!self.built.is_empty() && self.paused.len() == self.built.len(), Ordering::SeqCst);
     }

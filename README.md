@@ -55,8 +55,8 @@ and run it. No admin rights, nothing else to install.
 `termwall host` puts the page on the desktop itself, behind the icons, on every monitor
 (`--monitor N` for one, 1 = the main monitor). It brings what Wallpaper Engine gave the page: the music
 for the visualizer (whatever plays on the PC; with a mixer that spreads programs over several
-devices it follows the one that plays) and the track's title. A monitor covered by a fullscreen
-window pauses. `termwall host on` starts it now and at every logon (with the same `--monitor`
+devices it follows the one that plays) and the track's title. Under a maximized or
+fullscreen window the page freezes: the picture stays, nothing is asked or drawn. `termwall host on` starts it now and at every logon (with the same `--monitor`
 and `--audio-device NAME`, which fixes the visualizer to one playback device), `termwall host
 off` stops it. Windows 11 only so far, tested on one machine. `termwall host --window` shows the
 same in an ordinary window.
