@@ -215,6 +215,13 @@ and effects. A tap goes full screen.
 | Wallpaper Engine shows an old version after an update | WE plays its own copy of termwall: use the installer, or a junction ([Manual setup](#manual-setup)) |
 | colors or layout don't change | `termwall check` names a line in `termwall.toml` it can't use. Is there a `theme.json`? Its colors and `"style"` win |
 
+## Driving it from other programs
+
+A palette from your own switcher or a Matugen/wallust template (`theme.json`, or
+`termwall palette #bg #accent #secondary #text #dim #faint`), settings from a script
+(`termwall --style KEY VALUE`), the stats as JSON over HTTP or from `termwall stats`:
+[docs/integrating.md](docs/integrating.md).
+
 ## How it works
 
 A browser can't read CPU or GPU usage, so termwall has two halves: the page (`index.html`)
