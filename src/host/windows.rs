@@ -30,11 +30,11 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GA_ROOT,
-    GWL_EXSTYLE, GetAncestor, GetClassNameW, GetMessageW, GetParent, GetWindowLongPtrW, HWND_TOP, IsWindow, KillTimer, LWA_ALPHA,
-    MSG, PostMessageW, PostQuitMessage, RegisterClassW, SMTO_NORMAL, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SendMessageTimeoutW, SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, WM_APP, WM_DESTROY,
-    WM_TIMER, WNDCLASSW, WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW,
-    WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE, WindowFromPoint,
+    GWL_EXSTYLE, GetAncestor, GetClassNameW, GetMessageW, GetParent, GetWindowLongPtrW, GetWindowRect, HWND_TOP, IsWindow,
+    KillTimer, LWA_ALPHA, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SMTO_NORMAL, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SendMessageTimeoutW, SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow,
+    TranslateMessage, WM_APP, WM_DESTROY, WM_TIMER, WNDCLASSW, WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE, WindowFromPoint,
 };
 use windows_sys::core::BOOL;
 use wry::dpi::{PhysicalPosition, PhysicalSize};
@@ -125,26 +125,25 @@ fn monitors() -> Vec<RECT> {
     found
 }
 
-/// Windows hide the wallpaper on this monitor at nine points spread over it (a fullscreen game, a
-/// maximized app): nobody sees the page, so it can stop drawing.
+/// One window covers this whole monitor, taskbar and all (a fullscreen game or video): nobody
+/// sees the page, so it can stop drawing. A maximized window is not that: the taskbar is still
+/// there, and a transparent one shows the wallpaper through it. Nor is a big window with the
+/// desktop showing around it.
 fn covered(r: &RECT) -> bool {
-    for fx in [0.2, 0.5, 0.8] {
-        for fy in [0.2, 0.5, 0.8] {
-            let p =
-                POINT { x: r.left + ((r.right - r.left) as f64 * fx) as i32, y: r.top + ((r.bottom - r.top) as f64 * fy) as i32 };
-            // SAFETY: plain queries about windows on screen.
-            let class = unsafe {
-                let hwnd = WindowFromPoint(p);
-                let root = GetAncestor(hwnd, GA_ROOT);
-                class_of(if root.is_null() { hwnd } else { root })
-            };
-            let desktop = ["(none)", "Progman", "WorkerW", "SHELLDLL_DefView", "SysListView32", "termwallHost"];
-            if desktop.contains(&class.as_str()) || class.starts_with("WPE") {
-                return false;
-            }
+    let center = POINT { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
+    // SAFETY: plain queries about windows on screen.
+    unsafe {
+        let hwnd = WindowFromPoint(center);
+        let root = GetAncestor(hwnd, GA_ROOT);
+        let top = if root.is_null() { hwnd } else { root };
+        let class = class_of(top);
+        let desktop = ["(none)", "Progman", "WorkerW", "SHELLDLL_DefView", "SysListView32", "termwallHost"];
+        if desktop.contains(&class.as_str()) || class.starts_with("WPE") {
+            return false;
         }
+        let mut w: RECT = zeroed();
+        GetWindowRect(top, &mut w) != 0 && w.left <= r.left && w.top <= r.top && w.right >= r.right && w.bottom >= r.bottom
     }
-    true
 }
 
 /// The monitors to cover, with their screen numbers (1 = leftmost).
@@ -365,7 +364,7 @@ impl Host {
             } else {
                 self.paused.retain(|n| n != screen);
             }
-            println!("screen {screen}: {}", if hide { "covered by a window, paused" } else { "uncovered, running" });
+            println!("screen {screen}: {}", if hide { "covered by a fullscreen window, paused" } else { "uncovered, running" });
         }
         ALL_PAUSED.store(!self.built.is_empty() && self.paused.len() == self.built.len(), Ordering::SeqCst);
     }
