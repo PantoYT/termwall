@@ -42,12 +42,22 @@ The pictures come from the demo mode (`index.html?demo`) with made-up stats;
 Download `termwall-setup-X.Y.Z.exe` from [Releases](https://github.com/PantoYT/termwall/releases)
 and run it. No admin rights, nothing else to install.
 
-- Installs to `%LOCALAPPDATA%\Programs\termwall` with its own Python.
+- Installs to `%LOCALAPPDATA%\Programs\termwall`: one program (`termwall.exe`, and `termwallw.exe`,
+  the same without a console window) and the page. Since 3.0 there is no Python in it.
 - Starts the stats server now and at every logon.
 - Adds termwall to Wallpaper Engine (a link in `projects\myprojects`) and to Lively's library,
   whichever you have. In Lively, restart it once to see termwall in the library.
 - Uninstall: Windows' Apps list. It stops the server and removes the autostart and both
   links.
+
+### Without Wallpaper Engine or Lively (experimental)
+
+`termwall host` puts the page on the desktop itself, behind the icons, on every monitor
+(`--monitor N` for one, 1 = leftmost). It brings what Wallpaper Engine gave the page: the music
+for the visualizer (whatever plays on the PC; with a mixer that spreads programs over several
+devices it follows the one that plays) and the track's title. A monitor covered by a fullscreen
+or maximized window pauses. It is not started at logon yet; Windows 11 only so far, tested on
+one machine. `termwall host --window` shows the same in an ordinary window.
 
 A winget package is in review; once it's accepted: `winget install PantoYT.termwall`.
 
@@ -109,8 +119,7 @@ inside the picture stays. Half blocks by default, two pixels a character; a char
 color, so where two differ the rarer one wins (lines and highlights survive). Options:
 `--width N` (40), `--ascii` (characters from light to dense), `--colors N`, `--keep-bg`,
 `--out FILE` (write only that file, settings untouched), `--force` (replace `logo.txt`).
-PNG is read with the standard library; GIF (its first frame), JPEG, WebP and BMP need Pillow
-(`pip install pillow`). For a picture that moves or that you don't want to edit,
+PNG, GIF (its first frame), JPEG, WebP and BMP are read. For a picture that moves or that you don't want to edit,
 `logo = "image"` draws it live instead.
 
 **The palette**: `theme.json`, six `#rrggbb` colors:
@@ -191,7 +200,7 @@ and effects. A tap goes full screen.
 - The Host header has to be an IP address, so a web page can't reach it through a DNS name.
 - With [Tailscale](https://tailscale.com) on the PC and the phone, the 100.x link it prints
   works away from home too.
-- Windows Firewall asks once whether Python may listen on private networks: allow it, or the
+- Windows Firewall asks once whether termwall may listen on private networks: allow it, or the
   phone can't connect (Windows Security > Firewall & network protection > Allow an app).
 - Plain HTTP on a home network means the browser won't keep the screen on by itself: set the
   phone's screen timeout, or Android's "Stay awake" (developer options) while it charges.
@@ -209,14 +218,16 @@ and effects. A tap goes full screen.
 ## How it works
 
 A browser can't read CPU or GPU usage, so termwall has two halves: the page (`index.html`)
-and a small local server (`termwall_api.py`, "the server" in this README) that the page asks
-once a second.
+and a small local server ("the server" in this README) that the page asks once a second.
+On Windows the server is `termwall.exe`, written in Rust (`src/`); the Linux package still runs
+the Python version, `termwall_api.py`, which does the same and reads the same files.
 
 | file | what it is |
 |---|---|
 | `index.html` | the wallpaper: one page, no dependencies |
 | `logos.js` | distro logos (from fastfetch, see [Credits](#credits)) |
-| `termwall_api.py` | the server: psutil for the stats, `nvidia-smi` for an NVIDIA GPU |
+| `src/` | the server and the host in Rust (`termwall.exe`): `nvidia-smi` for an NVIDIA GPU |
+| `termwall_api.py` | the server in Python (psutil), what the Linux package runs |
 | `termwall-api.vbs` | starts the server without a console window (manual setup) |
 | `project.json` | Wallpaper Engine's project file |
 
@@ -255,7 +266,8 @@ Nothing is sent anywhere.
 
 ## Manual setup
 
-From the repo (tested on Python 3.12 to 3.14):
+From the repo, either the Rust program (`cargo build --release`, then `target\release\termwall`
+wherever this section says `python termwall_api.py`) or the Python one (3.12 to 3.14):
 
 ```
 pip install psutil

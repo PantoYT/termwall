@@ -63,9 +63,9 @@ Description: |-
   per-core CPU bars, CPU and GPU history, memory, disks, network and top processes, refreshed
   every second. Seven layouts (fetch, board, minimal, htop, portrait, phone, logo), effects,
   bundled fonts, per-monitor settings in one commented termwall.toml, and a palette that can
-  follow your wallpaper. It runs inside Wallpaper Engine or Lively Wallpaper; the installer
-  brings its own Python and starts the local stats server at logon. termwall update installs
-  newer releases.
+  follow your wallpaper. It runs inside Wallpaper Engine or Lively Wallpaper, or by itself
+  (termwall host, experimental); the installer puts in one compiled program and starts the local
+  stats server at logon. termwall update installs newer releases.
 Moniker: termwall
 Tags:
 - wallpaper
