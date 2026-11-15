@@ -311,8 +311,10 @@ Done and seen working on Windows 11 build 26340, next to a running Wallpaper Eng
 - Back after the wallpaper windows are lost: a hidden window of the host's own checks every two
   seconds that every wallpaper window still exists and still matches its monitor's rectangle, and
   builds them all again otherwise. Tested by destroying the windows from inside (a debug build
-  with `TERMWALL_TEST_REBUILD`): both came back with audio and the track line. Not tested with a
-  real Explorer restart, a monitor unplugged or a DPI change.
+  with `TERMWALL_TEST_REBUILD`): both came back with audio and the track line. Then with
+  Explorer killed and started again: the host waited ("no desktop"), one build failed half way
+  while the new desktop was still settling, and the next one two seconds later put both windows
+  back. Not tested with a monitor unplugged or a DPI change.
 - Audio (`src/host/audio.rs`): WASAPI loopback, 2048-sample Hann window, own FFT, 64 bands per
   channel, about 30 frames a second while something plays, two a second of zeros while nothing
   does, no capture at all while no screen has `visualizer` on. With music playing the page's
