@@ -355,6 +355,29 @@ fn overrides(t: &mut T) {
     t.check(integrate::editor_for(&sp, &env) == Some(want), "TERMWALL_EDITOR picks the editor");
 }
 
+/// The Rust program's own commands (not in the Python selftest): cargo test only.
+#[cfg(test)]
+#[test]
+fn palette_command() {
+    let td = TempDir::new().expect("temp dir");
+    let p = Paths::in_dir(td.path());
+    let a = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    write_json(&p.theme_file, &serde_json::json!({"style": {"layout": "board"}}));
+    assert_eq!(crate::cmd_palette(&a(&["accent=#ff0000"]), &p), 2, "one color with no palette yet is refused");
+    assert_eq!(crate::cmd_palette(&a(&["#111111", "#AAAAAA", "#333333", "#444444", "#555555", "#666666"]), &p), 0);
+    assert_eq!(crate::cmd_palette(&a(&["accent=#ff0000"]), &p), 0);
+    assert_eq!(crate::cmd_palette(&a(&["accent=red"]), &p), 2);
+    let doc = util::read_json(&p.theme_file).expect("theme.json");
+    assert_eq!(
+        (doc["bg"].as_str(), doc["accent"].as_str(), doc["style"]["layout"].as_str()),
+        (Some("#111111"), Some("#ff0000"), Some("board"))
+    );
+    assert_eq!(read_style(&p.style_file, &p.theme_file, None)["layout"], "board", "the switcher's look is kept");
+    assert_eq!(crate::cmd_palette(&a(&["off"]), &p), 0);
+    let doc = util::read_json(&p.theme_file).expect("theme.json");
+    assert!(doc.get("accent").is_none() && doc["style"]["layout"] == "board", "off removes the six colors only");
+}
+
 fn legacy(t: &mut T) {
     let td = TempDir::new().expect("temp dir");
     let (sp, legacy) = (td.join("termwall.toml"), td.join("termwall.json"));

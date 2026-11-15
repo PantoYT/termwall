@@ -50,6 +50,10 @@ const USAGE: &str = "termwall - a live system-stats wallpaper (github.com/PantoY
                                  --out FILE (write only that file), --force (overwrite logo.txt)
   termwall host [--monitor N]    the page as the desktop background, behind the icons, without
                                  Wallpaper Engine (--window: in a window; --seconds N: quit after)
+  termwall palette [COLORS|off]  the palette other programs give termwall (theme.json): six
+                                 #rrggbb (bg accent secondary text dim faint), or some as
+                                 accent=#rrggbb; off removes it; no argument shows it
+  termwall stats                 one sample as JSON, all of it (for scripts)
   termwall --once                print one sample
   termwall --selftest            run the self-test
   termwall --link-we | --unlink-we | --link-lively | --unlink-lively
@@ -57,8 +61,10 @@ const USAGE: &str = "termwall - a live system-stats wallpaper (github.com/PantoY
   termwall --version
 ";
 
-const OPTIONS: [&str; 18] = [
+const OPTIONS: [&str; 20] = [
     "--host",
+    "--palette",
+    "--stats",
     "--selftest",
     "--version",
     "--link-we",
@@ -95,6 +101,8 @@ fn word(arg: &str) -> Option<&'static str> {
         "share" => "--share",
         "update" => "--update",
         "host" => "--host",
+        "palette" => "--palette",
+        "stats" => "--stats",
         _ => return None,
     })
 }
@@ -285,6 +293,11 @@ fn cmd_style(rest: &[String], paths: &Paths) -> i32 {
 }
 
 fn cmd_once() -> i32 {
+    cmd_sample(true)
+}
+
+/// One sample as JSON: `--once` cut to a screenful, `stats` whole.
+fn cmd_sample(short: bool) -> i32 {
     let mut s = match sampler::Sampler::new() {
         Ok(s) => s,
         Err(e) => {
@@ -296,7 +309,66 @@ fn cmd_once() -> i32 {
     std::thread::sleep(std::time::Duration::from_secs(1));
     s.sample();
     let text = serde_json::to_string_pretty(&s.get()).unwrap_or_default();
-    println!("{}", text.chars().take(4000).collect::<String>());
+    println!("{}", if short { text.chars().take(4000).collect::<String>() } else { text });
+    0
+}
+
+/// `termwall palette [off | SIX COLORS | role=#rrggbb ...]`: the palette in theme.json, the file
+/// a switcher writes. A "style" object in it (a switcher's look) is kept.
+pub fn cmd_palette(args: &[String], paths: &Paths) -> i32 {
+    let file = &paths.theme_file;
+    let mut doc = util::read_json(file).and_then(|v| v.as_object().cloned()).unwrap_or_default();
+    if args.is_empty() {
+        match theme::palette_of(&Value::Object(doc)) {
+            Some(p) => {
+                for k in theme::THEME_KEYS {
+                    println!("  {k:10} {}", p[k].as_str().unwrap_or(""));
+                }
+            }
+            None => println!("no palette in {} (termwall uses its theme setting)", file.display()),
+        }
+        return 0;
+    }
+    if args.len() == 1 && args[0] == "off" {
+        for k in theme::THEME_KEYS {
+            doc.shift_remove(k);
+        }
+    } else if args.len() == 6 && args.iter().all(|a| theme::is_hex_color(a)) {
+        for (k, v) in theme::THEME_KEYS.iter().zip(args) {
+            doc.insert(k.to_string(), Value::from(v.to_lowercase()));
+        }
+    } else {
+        for a in args {
+            match a.split_once('=') {
+                Some((k, v)) if theme::THEME_KEYS.contains(&k) && theme::is_hex_color(v) => {
+                    doc.insert(k.to_string(), Value::from(v.to_lowercase()));
+                }
+                _ => {
+                    eprintln!("error: {a}: six #rrggbb colors (bg accent secondary text dim faint), or role=#rrggbb, or off");
+                    return 2;
+                }
+            }
+        }
+        if !theme::valid_theme(&Value::Object(doc.clone())) {
+            eprintln!("error: no full palette yet: give all six colors once (bg accent secondary text dim faint)");
+            return 2;
+        }
+    }
+    let text = if doc.is_empty() { String::new() } else { serde_json::to_string_pretty(&doc).unwrap_or_default() + "\n" };
+    let written = if doc.is_empty() {
+        std::fs::remove_file(file).or_else(|e| if file.exists() { Err(e) } else { Ok(()) })
+    } else {
+        util::write_in_place(file, &util::native_newlines(&text))
+    };
+    if let Err(e) = written {
+        eprintln!("error: {}: {e}", file.display());
+        return 1;
+    }
+    println!(
+        "{}: {}",
+        file.display(),
+        if args[0] == "off" { "palette removed" } else { "palette written; the wallpaper follows within a second" }
+    );
     0
 }
 
@@ -383,6 +455,10 @@ pub fn run() {
         }
     } else if has("--style") {
         cmd_style(&after(&args, "--style"), p)
+    } else if has("--palette") {
+        cmd_palette(&after(&args, "--palette"), p)
+    } else if has("--stats") {
+        cmd_sample(false)
     } else if has("--host") {
         host::cmd_host(&after(&args, "--host"), p)
     } else if has("--once") {
