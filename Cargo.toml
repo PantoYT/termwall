@@ -24,8 +24,10 @@ socket2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 wry = { version = "0.57", default-features = false, features = ["os-webview"] }
-# the same version wry brings in; COM interfaces for WASAPI (windows-sys has none)
+# the same version wry brings in; COM for WASAPI and WinRT for the media session (windows-sys has neither)
 windows = { version = "0.62", features = [
+    "Foundation",
+    "Media_Control",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
     "Win32_System_Com",

@@ -7,6 +7,8 @@ use crate::paths::Paths;
 
 #[cfg_attr(not(windows), allow(dead_code))] // the Linux host (phase 3) will use the spectrum too
 mod audio;
+#[cfg_attr(not(windows), allow(dead_code))] // and the now-playing events
+mod media;
 #[cfg(windows)]
 mod windows;
 
@@ -18,7 +20,7 @@ pub const USAGE: &str = "termwall host [--monitor N] [--seconds N] [--window]
   the page as the desktop background on every monitor (or only monitor N, 1 = leftmost),
   behind the icons; --window shows it in an ordinary window instead; --seconds quits after N";
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Options {
     pub monitor: Option<usize>,
     pub seconds: Option<u64>,
@@ -62,6 +64,36 @@ pub fn page_url(page: &Path, screen: usize) -> String {
     out + &format!("?screen={screen}")
 }
 
+/// The stats server for the pages: the one already running, or this process becomes it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn ensure_server(paths: &Paths) -> Result<(), String> {
+    use crate::server::{self, StartError};
+    match server::start(paths) {
+        Ok((listener, handler)) => {
+            println!("no stats server was running: serving on http://{}:{} from here", server::HOST, server::port());
+            std::thread::spawn(move || crate::http::serve(listener, handler, None));
+            Ok(())
+        }
+        Err(StartError::PortInUse(port)) => {
+            println!("using the stats server already on {}:{port}", server::HOST);
+            Ok(())
+        }
+        Err(StartError::Other(e)) => Err(e),
+    }
+}
+
+/// What the page has to know before its own scripts run: Wallpaper Engine's API, and where the
+/// stats are when the server is not on its usual port.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn init_script() -> String {
+    let port = crate::server::port();
+    if port == crate::server::PORT {
+        WE_API.to_string()
+    } else {
+        format!("window.TERMWALL_API = \"http://{}:{port}/stats\";\n{WE_API}", crate::server::HOST)
+    }
+}
+
 pub fn cmd_host(args: &[String], paths: &Paths) -> i32 {
     let opts = match parse(args) {
         Ok(o) => o,
@@ -72,6 +104,10 @@ pub fn cmd_host(args: &[String], paths: &Paths) -> i32 {
     };
     #[cfg(windows)]
     {
+        if let Err(e) = ensure_server(paths) {
+            eprintln!("{e}");
+            return 1;
+        }
         windows::run(&opts, paths)
     }
     #[cfg(not(windows))]

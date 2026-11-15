@@ -143,40 +143,33 @@ pub fn prepare_page_dir(app_dir: &Path, data_dir: &Path) -> std::io::Result<Vec<
     Ok(made)
 }
 
-/// `termwall`: the server. Binds before anything else, so a second copy can't rewrite token.js.
-pub fn serve(paths: &Paths) -> i32 {
+/// Why the server didn't start.
+pub enum StartError {
+    /// Something already listens on the port: almost always termwall's own server.
+    PortInUse(u16),
+    Other(String),
+}
+
+/// Everything the server needs, started without blocking: the port is bound (before anything
+/// else, so a second copy can't rewrite token.js), token.js written, the sampler and
+/// `termwall share` running on threads of their own. The caller answers requests with
+/// `http::serve(listener, handler, ...)`.
+pub fn start(paths: &Paths) -> Result<(std::net::TcpListener, http::Handler), StartError> {
     let port = port();
     let addr = format!("{HOST}:{port}").parse().expect("a valid address");
-    let listener = match platform::bind_exclusive(addr) {
-        Ok(l) => l,
-        Err(_) => {
-            eprintln!("termwall's server is already running on {HOST}:{port} (check: http://{HOST}:{port}/health)");
-            return 1;
-        }
-    };
+    let listener = platform::bind_exclusive(addr).map_err(|_| StartError::PortInUse(port))?;
     if paths.system_install {
         let _ = fs::create_dir_all(&paths.config_dir);
         if let Err(e) = prepare_page_dir(&paths.app_dir, &paths.data_dir) {
             eprintln!("note: could not link the page into {}: {e}", paths.data_dir.display());
         }
     }
-    let token = match write_token(&paths.token_file) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("could not write {}: {e}", paths.token_file.display());
-            return 1;
-        }
-    };
+    let token = write_token(&paths.token_file)
+        .map_err(|e| StartError::Other(format!("could not write {}: {e}", paths.token_file.display())))?;
     if let Err(e) = style::ensure_config(&paths.style_file).map(|p| style::refresh_config(&p)) {
         println!("note: could not write {}: {e}", paths.style_file.display()); // an update brings new choices
     }
-    let mut sampler = match Sampler::new() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("{e}");
-            return 1;
-        }
-    };
+    let mut sampler = Sampler::new().map_err(StartError::Other)?;
     sampler.sample();
     let snapshot = sampler.snapshot();
     std::thread::spawn(move || sampler.run());
@@ -186,9 +179,26 @@ pub fn serve(paths: &Paths) -> i32 {
         let (source, shared) = (source.clone(), shared.clone());
         std::thread::spawn(move || share::run_share(source, shared)); // termwall share
     }
-    println!("termwall's server on http://{HOST}:{port} - Ctrl+C stops it");
-    http::serve(listener, make_handler(source, token, shared), None);
-    0
+    Ok((listener, make_handler(source, token, shared)))
+}
+
+/// `termwall`: the server, until Ctrl+C.
+pub fn serve(paths: &Paths) -> i32 {
+    match start(paths) {
+        Ok((listener, handler)) => {
+            println!("termwall's server on http://{HOST}:{} - Ctrl+C stops it", port());
+            http::serve(listener, handler, None);
+            0
+        }
+        Err(StartError::PortInUse(port)) => {
+            eprintln!("termwall's server is already running on {HOST}:{port} (check: http://{HOST}:{port}/health)");
+            1
+        }
+        Err(StartError::Other(e)) => {
+            eprintln!("{e}");
+            1
+        }
+    }
 }
 
 /// The stats handler end to end (the Python selftest checked its parts, not the whole).

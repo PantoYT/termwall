@@ -284,10 +284,11 @@ One WebView2 per monitor behind the desktop icons.
    wallpaper back; a fullscreen game pauses it (WebView2 process CPU near zero); two monitors with
    different DPI line up; icons stay clickable on top.
 
-### Phase 2 status (2026-11-14): the page and the music work, the rest is open
+### Phase 2 status (2026-11-15): the page, the music and now playing work; pausing is open
 
-`termwall host [--monitor N] [--seconds N] [--window]` (`src/host/`). It needs the stats server
-running, as the page does anywhere else.
+`termwall host [--monitor N] [--seconds N] [--window]` (`src/host/`). It uses the stats server
+already running, or becomes it when none is (then `termwall host` alone is the whole of termwall).
+With `TERMWALL_PORT` set it tells the page where the stats are.
 
 Done and seen working on Windows 11 build 26340, next to a running Wallpaper Engine:
 
@@ -301,7 +302,17 @@ Done and seen working on Windows 11 build 26340, next to a running Wallpaper Eng
   (so it covers Wallpaper Engine's wallpaper on that monitor while it runs). The older layout
   (top-level `WorkerW`) uses the same code path and is untested.
 - Wallpaper Engine's web API for the page (`src/host/we_api.js`): the audio listener and the five
-  media listeners can be registered; only audio is fed so far.
+  media listeners can be registered; audio, the track's properties, the playback state and the
+  status are fed. A listener registered after an event still hears the latest one.
+- Now playing (`src/host/media.rs`): Windows' media session
+  (`GlobalSystemMediaTransportControlsSessionManager`), asked once a second instead of wired to
+  events, sent on every change and again every ten seconds. The page showed the title and artist
+  of what a browser tab was playing. Timeline and thumbnail are not sent.
+- Back after the wallpaper windows are lost: a hidden window of the host's own checks every two
+  seconds that every wallpaper window still exists and still matches its monitor's rectangle, and
+  builds them all again otherwise. Tested by destroying the windows from inside (a debug build
+  with `TERMWALL_TEST_REBUILD`): both came back with audio and the track line. Not tested with a
+  real Explorer restart, a monitor unplugged or a DPI change.
 - Audio (`src/host/audio.rs`): WASAPI loopback, 2048-sample Hann window, own FFT, 64 bands per
   channel, about 30 frames a second while something plays, two a second of zeros while nothing
   does, no capture at all while no screen has `visualizer` on. With music playing the page's
@@ -322,10 +333,12 @@ Low integrity and may not create windows inside Explorer's (access denied), nor 
 `%TEMP%`. `icacls <folder>` shows such a label. Run test builds from a folder without one.
 
 New dependencies, Windows only: `wry` (the WebView2 plumbing; `default-features = false`, so no
-GTK or tao) and `windows` (COM interfaces for WASAPI, the version `wry` already brings in).
+GTK or tao) and `windows` (COM for WASAPI and WinRT for the media session, the version `wry`
+already brings in).
 
-Open: now playing (step 7), Explorer restart (step 3), pause under a fullscreen app (step 4),
-display and DPI changes (the rest of step 2), the server and the host in one process, an
+Open: pause under a fullscreen or maximized app (step 4; hiding the WebView2 is the easy part,
+what the desktop shows the moment it is uncovered has to be looked at), the real-world checks
+named above, whether `termwall` without arguments starts the host, autostart, an
 `--audio-device` override, CPU and memory next to Wallpaper Engine, a manifest in the exe.
 With the GNU toolchain `WebView2Loader.dll` has to sit next to the exe; MSVC links it in.
 
