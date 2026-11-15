@@ -23,16 +23,18 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MapWindowPoints};
+use windows_sys::Win32::Graphics::Gdi::{
+    CreateSolidBrush, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MapWindowPoints,
+};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GWL_EXSTYLE,
-    GetClassNameW, GetMessageW, GetParent, GetWindowLongPtrW, HWND_TOP, IsWindow, KillTimer, LWA_ALPHA, MSG, PostMessageW,
-    PostQuitMessage, RegisterClassW, SMTO_NORMAL, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SendMessageTimeoutW,
-    SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, WM_APP, WM_DESTROY, WM_TIMER, WNDCLASSW,
-    WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_POPUP,
-    WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GA_ROOT,
+    GWL_EXSTYLE, GetAncestor, GetClassNameW, GetMessageW, GetParent, GetWindowLongPtrW, HWND_TOP, IsWindow, KillTimer, LWA_ALPHA,
+    MSG, PostMessageW, PostQuitMessage, RegisterClassW, SMTO_NORMAL, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SendMessageTimeoutW, SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, WM_APP, WM_DESTROY,
+    WM_TIMER, WNDCLASSW, WS_CHILD, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW,
+    WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE, WindowFromPoint,
 };
 use windows_sys::core::BOOL;
 use wry::dpi::{PhysicalPosition, PhysicalSize};
@@ -49,6 +51,10 @@ const TIMER_QUIT: usize = 2;
 const TIMER_WATCH: usize = 3;
 /// Debug builds, TERMWALL_TEST_REBUILD set: destroy the wallpaper windows as an Explorer restart would.
 const TIMER_TEST_KILL: usize = 4;
+/// Is a monitor's wallpaper covered by a fullscreen or maximized window?
+const TIMER_COVER: usize = 5;
+/// Every page is paused: no music is captured either.
+static ALL_PAUSED: AtomicBool = AtomicBool::new(false);
 /// The audio thread has a new frame in AUDIO for the pages.
 const WM_APP_AUDIO: u32 = WM_APP + 1;
 static AUDIO: Mutex<[f32; audio::BANDS * 2]> = Mutex::new([0.0; audio::BANDS * 2]);
@@ -117,6 +123,28 @@ fn monitors() -> Vec<RECT> {
     unsafe { EnumDisplayMonitors(null_mut(), null(), Some(each), &mut found as *mut _ as LPARAM) };
     found.sort_by_key(|r| (r.left, r.top));
     found
+}
+
+/// Windows hide the wallpaper on this monitor at nine points spread over it (a fullscreen game, a
+/// maximized app): nobody sees the page, so it can stop drawing.
+fn covered(r: &RECT) -> bool {
+    for fx in [0.2, 0.5, 0.8] {
+        for fy in [0.2, 0.5, 0.8] {
+            let p =
+                POINT { x: r.left + ((r.right - r.left) as f64 * fx) as i32, y: r.top + ((r.bottom - r.top) as f64 * fy) as i32 };
+            // SAFETY: plain queries about windows on screen.
+            let class = unsafe {
+                let hwnd = WindowFromPoint(p);
+                let root = GetAncestor(hwnd, GA_ROOT);
+                class_of(if root.is_null() { hwnd } else { root })
+            };
+            let desktop = ["(none)", "Progman", "WorkerW", "SHELLDLL_DefView", "SysListView32", "termwallHost"];
+            if desktop.contains(&class.as_str()) || class.starts_with("WPE") {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// The monitors to cover, with their screen numbers (1 = leftmost).
@@ -224,6 +252,8 @@ struct Host {
     built: Vec<(usize, RECT, HWND)>,
     /// The last reason nothing could be built, so it is said once.
     said: String,
+    /// The screens whose pages are paused because windows cover them.
+    paused: Vec<usize>,
 }
 
 impl Host {
@@ -298,6 +328,8 @@ impl Host {
 
     /// The pages first, then their windows (the ones Explorer took along are gone already).
     fn teardown(&mut self) {
+        self.paused.clear();
+        ALL_PAUSED.store(false, Ordering::SeqCst);
         VIEWS.with(|v| v.borrow_mut().clear());
         for (_, _, hwnd) in self.built.drain(..) {
             unsafe { DestroyWindow(hwnd) };
@@ -313,6 +345,29 @@ impl Host {
                 .iter()
                 .zip(&want)
                 .any(|((n, r, hwnd), (wn, wr))| n != wn || !same_rect(r, wr) || unsafe { IsWindow(*hwnd) } == 0)
+    }
+
+    /// Pause the pages nobody can see, wake the ones uncovered again. A hidden WebView2 stops
+    /// drawing and its timers slow down; the window behind it keeps the page's background color.
+    fn cover(&mut self) {
+        for (screen, r, _) in &self.built {
+            let (hide, was) = (covered(r), self.paused.contains(screen));
+            if hide == was {
+                continue;
+            }
+            VIEWS.with(|v| {
+                if let Some((_, view)) = v.borrow().iter().find(|(n, _)| n == screen) {
+                    let _ = view.set_visible(!hide);
+                }
+            });
+            if hide {
+                self.paused.push(*screen);
+            } else {
+                self.paused.retain(|n| n != screen);
+            }
+            println!("screen {screen}: {}", if hide { "covered by a window, paused" } else { "uncovered, running" });
+        }
+        ALL_PAUSED.store(!self.built.is_empty() && self.paused.len() == self.built.len(), Ordering::SeqCst);
     }
 
     fn watch(&mut self) {
@@ -343,6 +398,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                     && let Some(host) = h.as_mut()
                 {
                     host.watch();
+                }
+            });
+            0
+        }
+        WM_TIMER if w == TIMER_COVER => {
+            HOST.with(|h| {
+                if let Ok(mut h) = h.try_borrow_mut()
+                    && let Some(host) = h.as_mut()
+                {
+                    host.cover();
                 }
             });
             0
@@ -431,6 +496,8 @@ pub fn run(opts: &Options, paths: &Paths) -> i32 {
     wc.lpfnWndProc = Some(wndproc);
     wc.hInstance = hinst;
     wc.lpszClassName = class.as_ptr();
+    // the page's background color (0x00bbggrr): what shows for a moment before a page draws
+    wc.hbrBackground = unsafe { CreateSolidBrush(0x0017_1717) };
     let control = unsafe {
         RegisterClassW(&wc);
         let title = wide("termwall host");
@@ -464,6 +531,7 @@ pub fn run(opts: &Options, paths: &Paths) -> i32 {
         context: WebContext::new(Some(webview_data_dir())),
         built: Vec::new(),
         said: String::new(),
+        paused: Vec::new(),
     };
     if let Err(e) = host.build() {
         eprintln!("{e}");
@@ -477,10 +545,11 @@ pub fn run(opts: &Options, paths: &Paths) -> i32 {
     let test_run = opts.seconds.is_some();
     let style_paths = paths.clone();
     let wanted = move || {
-        screens.iter().any(|n| {
-            let st = style::read_style(&style_paths.style_file, &style_paths.theme_file, Some(n));
-            st.get("visualizer").and_then(|v| v.as_str()).is_some_and(|v| v != "off")
-        })
+        !ALL_PAUSED.load(Ordering::SeqCst)
+            && screens.iter().any(|n| {
+                let st = style::read_style(&style_paths.style_file, &style_paths.theme_file, Some(n));
+                st.get("visualizer").and_then(|v| v.as_str()).is_some_and(|v| v != "off")
+            })
     };
     let frames = AtomicUsize::new(0);
     audio::capture::spawn(wanted, move |frame| {
@@ -512,6 +581,7 @@ pub fn run(opts: &Options, paths: &Paths) -> i32 {
     unsafe {
         if !opts.window {
             SetTimer(control, TIMER_WATCH, 2000, None);
+            SetTimer(control, TIMER_COVER, 500, None);
         }
         if cfg!(debug_assertions) && std::env::var_os("TERMWALL_TEST_REBUILD").is_some() {
             SetTimer(control, TIMER_TEST_KILL, 5000, None);

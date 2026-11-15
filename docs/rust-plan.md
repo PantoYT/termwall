@@ -336,9 +336,14 @@ New dependencies, Windows only: `wry` (the WebView2 plumbing; `default-features 
 GTK or tao) and `windows` (COM for WASAPI and WinRT for the media session, the version `wry`
 already brings in).
 
-Open: pause under a fullscreen or maximized app (step 4; hiding the WebView2 is the easy part,
-what the desktop shows the moment it is uncovered has to be looked at), the real-world checks
-named above, whether `termwall` without arguments starts the host, autostart, an
+Pause (step 4, done differently): twice a second the host looks at nine points of every monitor;
+when windows that aren't the desktop are at all nine (a fullscreen game, a maximized app), that
+monitor's WebView2 is hidden, and shown again when the desktop is back. With every page paused
+the music isn't captured either. Seen: a maximized window paused its monitor at once, a window
+put over the other monitor for six seconds paused and then resumed it. Not measured: how much
+CPU a hidden page still uses, and what the eye sees in the half second after uncovering.
+
+Open: the real-world checks named above, whether `termwall` without arguments starts the host, autostart, an
 `--audio-device` override, CPU and memory next to Wallpaper Engine, a manifest in the exe.
 With the GNU toolchain `WebView2Loader.dll` has to sit next to the exe; MSVC links it in.
 
