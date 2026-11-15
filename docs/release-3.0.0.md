@@ -8,7 +8,7 @@ kept.
   `logos`, `logo-from`, `update`, `--style` ...), with the same names, output and files as before:
   `termwall.toml`, `theme.json` (livery), `share.json`, `logo.txt`. `termwallw.exe` is the same
   program without a console window; that one starts at logon.
-- The installer is a third of the size (4.2 MB, was 12.8) and removes the old Python on update.
+- The installer is a third of the size (4.7 MB, was 12.8) and removes the old Python on update.
 - `termwall logo-from` reads PNG, GIF (first frame), JPEG, WebP and BMP by itself (no Pillow).
 - `termwall --selftest` runs the same checks as the Python version did, inside the program.
 - On Linux nothing changes yet: the package still runs `termwall_api.py`, kept in step with the
