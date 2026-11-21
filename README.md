@@ -70,7 +70,9 @@ mentions a newer release too. termwall never checks on its own. Running a newer 
 hand does the same thing; a git clone updates with `git pull`.
 
 The installer also puts a `termwall` command on your PATH (in new terminals):
-`termwall config` (opens the settings file), `termwall --style layout board`, `termwall --version`.
+`termwall settings` (every setting in the terminal), `termwall config` (opens the settings
+file), `termwall doctor` (what's wrong, when something is), `termwall --style layout board`,
+`termwall --version`.
 
 ## Configuration
 
@@ -78,7 +80,15 @@ termwall reads two optional files from its folder (`%LOCALAPPDATA%\Programs\term
 the installer, the repo folder otherwise). Both are picked up within a second, without
 reloading the wallpaper.
 
-**The look**: `termwall.toml`. `termwall config` opens it in an editor (`$EDITOR`, else the app
+**The look**: `termwall.toml`. `termwall settings` shows every setting in the terminal, grouped
+(look, logo, colors, sections, music, host): arrows change a value and it is written at once, so
+the wallpaper is the preview. Next to each value it says where it comes from (the default,
+`termwall.toml`, livery's `theme.json`, a `[screen.N]` table), and a row livery overrides says
+so, which is the usual reason a change shows nothing. `s` switches between every screen and
+one `[screen.N]`; Enter opens a picker for the logo (search, with a preview in its own colors),
+the theme (with swatches) and the sections to hide. The mouse works too.
+
+`termwall config` opens the file in an editor (`$EDITOR`, else the app
 set for `.toml` files, else VS Code, else Notepad): every setting is in it with its
 current value, and the comment above each one says what it does and what it accepts. Change a
 value, save, and the wallpaper follows. `termwall check` names a line termwall can't use, and a
@@ -215,7 +225,8 @@ and effects. A tap goes full screen.
 | the server won't start: "port 9002 is taken" | another termwall is already running (a manual one next to the installed one?) |
 | GPU shows `n/a` | only NVIDIA cards are read (through `nvidia-smi`); AMD and Intel GPUs show `n/a` |
 | Wallpaper Engine shows an old version after an update | WE plays its own copy of termwall: use the installer, or a junction ([Manual setup](#manual-setup)) |
-| colors or layout don't change | `termwall check` names a line in `termwall.toml` it can't use. Is there a `theme.json`? Its colors and `"style"` win |
+| colors or layout don't change | `termwall check` names a line in `termwall.toml` it can't use. Is there a `theme.json`? Its colors and `"style"` win (`termwall settings` marks those rows) |
+| any of the above, or "connecting..." that stays | `termwall doctor`: who holds port 9002 (an old Python server started at logon ahead of the installed one, say), whether the running version is the installed one, whether the wallpaper's requests are refused (another copy's `token.js`), what starts at logon, the WebView2 runtime, and which playback device the music is on against the one Wallpaper Engine or `termwall host` listens to. Exit code 1 when something is wrong |
 
 ## Driving it from other programs
 

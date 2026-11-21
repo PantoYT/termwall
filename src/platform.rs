@@ -47,7 +47,7 @@ pub mod reg {
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
     use windows_sys::Win32::System::Registry::{
         HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_DWORD, REG_EXPAND_SZ, REG_QWORD, REG_SZ,
-        RRF_RT_ANY, RegCloseKey, RegDeleteKeyValueW, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW,
+        RRF_RT_ANY, RegCloseKey, RegDeleteKeyValueW, RegEnumValueW, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW,
     };
 
     pub const HKLM: HKEY = HKEY_LOCAL_MACHINE;
@@ -106,6 +106,46 @@ pub mod reg {
         unsafe { RegDeleteKeyValueW(root, k.as_ptr(), n.as_ptr()) == ERROR_SUCCESS }
     }
 
+    /// Every string value of a key, name and data (numbers left out).
+    pub fn values(root: HKEY, subkey: &str) -> Vec<(String, String)> {
+        let k = wide(subkey);
+        let mut h: HKEY = std::ptr::null_mut();
+        // SAFETY: k is NUL-terminated and h receives the handle, closed at the end.
+        if unsafe { RegOpenKeyExW(root, k.as_ptr(), 0, KEY_READ, &mut h) } != ERROR_SUCCESS {
+            return Vec::new();
+        }
+        let mut names = Vec::new();
+        for i in 0.. {
+            let mut name = vec![0u16; 16384];
+            let mut len = name.len() as u32;
+            // SAFETY: name holds len UTF-16 units; the type and data aren't asked for.
+            let rc = unsafe {
+                RegEnumValueW(
+                    h,
+                    i,
+                    name.as_mut_ptr(),
+                    &mut len,
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            };
+            if rc != ERROR_SUCCESS {
+                break;
+            }
+            names.push(String::from_utf16_lossy(&name[..len as usize]));
+        }
+        unsafe { RegCloseKey(h) };
+        names
+            .into_iter()
+            .filter_map(|n| {
+                let v = read(root, subkey, &n)?;
+                Some((n, v))
+            })
+            .collect()
+    }
+
     pub fn key_exists(root: HKEY, subkey: &str) -> bool {
         let k = wide(subkey);
         let mut h: HKEY = std::ptr::null_mut();
@@ -160,6 +200,62 @@ pub fn pagefile_percent() -> Option<f64> {
 
 #[cfg(not(windows))]
 pub fn pagefile_percent() -> Option<f64> {
+    None
+}
+
+/// The process listening on 127.0.0.1:port (IPv4), if the system says. 0 or None when it
+/// doesn't tell this process (other users' processes, a sandbox).
+#[cfg(windows)]
+pub fn listener_pid(port: u16) -> Option<u32> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, TCP_TABLE_OWNER_PID_LISTENER};
+    let mut buf = vec![0u32; 4096];
+    loop {
+        let mut size = (buf.len() * 4) as u32;
+        // SAFETY: buf is writable for size bytes; on ERROR_INSUFFICIENT_BUFFER size says how much.
+        let rc = unsafe { GetExtendedTcpTable(buf.as_mut_ptr().cast(), &mut size, 0, 2, TCP_TABLE_OWNER_PID_LISTENER, 0) };
+        if rc == 122 && buf.len() < 1 << 22 {
+            buf.resize(size as usize / 4 + 64, 0);
+            continue;
+        }
+        if rc != 0 {
+            return None;
+        }
+        break;
+    }
+    // MIB_TCPTABLE_OWNER_PID: a count, then rows of six u32: state, local address, local port
+    // (network order in the low 16 bits), remote address, remote port, pid
+    let rows = buf[0] as usize;
+    (0..rows).map(|i| &buf[1 + i * 6..1 + i * 6 + 6]).find_map(|r| {
+        let lport = ((r[2] & 0xff) << 8 | (r[2] >> 8) & 0xff) as u16;
+        let local_ok = r[1] == u32::from_ne_bytes([127, 0, 0, 1]) || r[1] == 0;
+        (lport == port && local_ok).then_some(r[5])
+    })
+}
+
+#[cfg(not(windows))]
+pub fn listener_pid(port: u16) -> Option<u32> {
+    // /proc/net/tcp: "0100007F:232A" is 127.0.0.1:9002, state 0A is LISTEN; then the process
+    // holding that socket's inode among its open files
+    let text = std::fs::read_to_string("/proc/net/tcp").ok()?;
+    let want = format!(":{port:04X}");
+    let inode = text.lines().skip(1).find_map(|l| {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        let ok = f.len() > 9
+            && f[3] == "0A"
+            && f[1].ends_with(&want)
+            && (f[1].starts_with("0100007F") || f[1].starts_with("00000000"));
+        ok.then(|| f[9].to_string())
+    })?;
+    let target = format!("socket:[{inode}]");
+    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else { continue };
+        let Ok(fds) = std::fs::read_dir(entry.path().join("fd")) else { continue };
+        for fd in fds.flatten() {
+            if std::fs::read_link(fd.path()).is_ok_and(|l| l.to_string_lossy() == target) {
+                return Some(pid);
+            }
+        }
+    }
     None
 }
 

@@ -124,6 +124,24 @@ pub fn script(frame: &[f32; BANDS * 2]) -> String {
     s
 }
 
+/// A playback device, for `termwall doctor` and `termwall settings`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Device {
+    pub name: String,
+    /// Windows' default output (what Wallpaper Engine hears unless told otherwise)
+    pub default: bool,
+    /// the loudest it played while it was listened to, 0.0 to 1.0
+    pub peak: f32,
+}
+
+impl Device {
+    /// Louder than this is playing (the threshold the host uses too).
+    pub const PLAYS: f32 = 0.001;
+    pub fn plays(&self) -> bool {
+        self.peak > Self::PLAYS
+    }
+}
+
 #[cfg(windows)]
 pub mod capture {
     //! WASAPI loopback: the mix going to a playback device, read by polling (no event handle:
@@ -249,6 +267,48 @@ pub mod capture {
                 _ => default,
             })
         }
+    }
+
+    /// The active playback devices, the default one first, each with the loudest it played
+    /// during `ms` milliseconds. Empty when Windows' audio service can't be reached. Runs on a
+    /// thread of its own (COM for that thread only).
+    pub fn devices(ms: u64) -> Vec<super::Device> {
+        let run = move || -> windows::core::Result<Vec<super::Device>> {
+            // SAFETY: COM for this thread only; the interfaces never leave it.
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+                let default_id = device_id(&enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)?)?;
+                let all = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
+                let mut found = Vec::new();
+                for i in 0..all.GetCount()? {
+                    let d = all.Item(i)?;
+                    let id = device_id(&d)?;
+                    let meter: Option<IAudioMeterInformation> = d.Activate(CLSCTX_ALL, None).ok();
+                    found.push((id, meter));
+                }
+                let mut peaks = vec![0.0f32; found.len()];
+                let rounds = (ms / 50).max(1);
+                for round in 0..rounds {
+                    if round > 0 {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    for (peak, (_, meter)) in peaks.iter_mut().zip(&found) {
+                        if let Some(v) = meter.as_ref().and_then(|m| m.GetPeakValue().ok()) {
+                            *peak = peak.max(v);
+                        }
+                    }
+                }
+                let mut out: Vec<super::Device> = found
+                    .iter()
+                    .zip(peaks)
+                    .map(|((id, _), peak)| super::Device { name: device_name(id), default: *id == default_id, peak })
+                    .collect();
+                out.sort_by_key(|d| !d.default);
+                Ok(out)
+            }
+        };
+        std::thread::spawn(run).join().ok().and_then(Result::ok).unwrap_or_default()
     }
 
     /// Capture on a thread of its own for as long as `wanted()` says so (asked every two seconds:

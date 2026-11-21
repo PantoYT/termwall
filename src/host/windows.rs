@@ -636,29 +636,52 @@ pub fn autostart_command(exe_dir: &std::path::Path, opts: &Options) -> String {
     cmd
 }
 
-/// `termwall host on|off`: the Run entry for the logon, and the host itself started or stopped now.
-pub fn autostart(on: bool, opts: &Options) -> i32 {
+/// The autostart entry `termwall host on` wrote, if any.
+pub fn autostart_entry() -> Option<String> {
+    use crate::platform::reg;
+    reg::read(reg::HKCU, RUN_KEY, RUN_VALUE).filter(|s| !s.is_empty())
+}
+
+/// `termwall host on|off`: the Run entry for the logon, and the host itself started or stopped
+/// now. Says what it did, for a terminal or `termwall settings`.
+pub fn set_autostart(on: bool, opts: &Options) -> Result<String, String> {
     use crate::platform::reg;
     let dir = std::env::current_exe().ok().and_then(|p| p.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
     let stopped = stop_hosts(&dir);
     if !on {
-        let had = reg::read(reg::HKCU, RUN_KEY, RUN_VALUE).is_some();
+        let had = autostart_entry().is_some();
         if had && !reg::delete_value(reg::HKCU, RUN_KEY, RUN_VALUE) {
-            eprintln!("could not remove the autostart entry");
-            return 1;
+            return Err("could not remove the autostart entry".into());
         }
-        println!("host: off ({stopped} stopped{})", if had { ", autostart removed" } else { "" });
-        return 0;
+        return Ok(format!("host: off ({stopped} stopped{})", if had { ", autostart removed" } else { "" }));
     }
     let cmd = autostart_command(&dir, opts);
     if !reg::set_string(reg::HKCU, RUN_KEY, RUN_VALUE, &cmd) {
-        eprintln!("could not write the autostart entry");
-        return 1;
+        return Err("could not write the autostart entry".into());
     }
     // started through the shell so it outlives this terminal
-    let started = std::process::Command::new("cmd").args(["/c", "start", "", "/b"]).raw_arg(&cmd).spawn().is_ok();
-    println!("host: on, at every logon: {cmd}{}", if started { "" } else { " (could not start it now)" });
-    0
+    let started = std::process::Command::new("cmd")
+        .args(["/c", "start", "", "/b"])
+        .raw_arg(&cmd)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok();
+    Ok(format!("host: on, at every logon: {cmd}{}", if started { "" } else { " (could not start it now)" }))
+}
+
+pub fn autostart(on: bool, opts: &Options) -> i32 {
+    match set_autostart(on, opts) {
+        Ok(msg) => {
+            println!("{msg}");
+            0
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
 }
 
 /// Stop the hosts running from this folder (termwall or termwallw with `host` as the command).

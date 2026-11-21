@@ -4,6 +4,7 @@
 //! second, so a request never blocks on the operating system or nvidia-smi. The page
 //! (index.html) is the same one Wallpaper Engine and Lively show.
 
+mod doctor;
 mod gpu;
 mod host;
 mod http;
@@ -17,9 +18,11 @@ mod qr;
 mod sampler;
 mod selftest;
 mod server;
+mod settings;
 mod share;
 mod style;
 mod theme;
+mod tui;
 mod util;
 
 use std::path::Path;
@@ -31,6 +34,10 @@ use crate::util::Value;
 const USAGE: &str = "termwall - a live system-stats wallpaper (github.com/PantoYT/termwall)
 
   termwall                       run the stats server here (the installer runs it at logon)
+  termwall settings              every setting in the terminal: change one and the wallpaper
+                                 follows; shows where each value comes from (livery, [screen.N])
+  termwall doctor                what runs, what starts at logon, what the visualizer hears;
+                                 exit 1 when something is wrong
   termwall config                open termwall.toml in an editor: every setting, its choices in
                                  comments ($EDITOR, else the .toml app, else VS Code, else Notepad)
   termwall check                 which lines of termwall.toml are wrong, and what livery overrides
@@ -61,7 +68,9 @@ const USAGE: &str = "termwall - a live system-stats wallpaper (github.com/PantoY
   termwall --version
 ";
 
-const OPTIONS: [&str; 20] = [
+const OPTIONS: [&str; 22] = [
+    "--settings",
+    "--doctor",
     "--host",
     "--palette",
     "--stats",
@@ -103,6 +112,8 @@ fn word(arg: &str) -> Option<&'static str> {
         "host" => "--host",
         "palette" => "--palette",
         "stats" => "--stats",
+        "settings" => "--settings",
+        "doctor" => "--doctor",
         _ => return None,
     })
 }
@@ -267,25 +278,10 @@ fn cmd_style(rest: &[String], paths: &Paths) -> i32 {
     }
     let st = style::read_style(&paths.style_file, &paths.theme_file, None);
     for s in style::spec() {
-        let v = match (s.key, st.get(s.key)) {
-            ("colors", Some(c)) if c.as_object().is_some_and(|c| !c.is_empty()) => "set".to_string(),
-            ("colors", _) => "-".to_string(),
-            (_, None) => "-".to_string(),
-            (_, Some(Value::Array(a))) => {
-                a.iter().map(|x| x.as_str().map(String::from).unwrap_or_else(|| x.to_string())).collect::<Vec<_>>().join(",")
-            }
-            (_, Some(Value::Bool(b))) => {
-                if *b {
-                    "on".into()
-                } else {
-                    "off".into()
-                }
-            }
-            (_, Some(Value::String(s))) => s.clone(),
-            (_, Some(Value::Number(n))) if n.is_f64() => util::py_float(n.as_f64().unwrap_or(0.0)),
-            (_, Some(v)) => v.to_string(),
+        let v = match s.key {
+            "colors" if st.get("colors").and_then(Value::as_object).is_some_and(|c| !c.is_empty()) => "set".to_string(),
+            k => style::show_value(k, st.get(k)),
         };
-        let v = if v.is_empty() { "-".to_string() } else { v };
         println!("  {:8} {:22} {}", s.key, v, s.check.help());
     }
     println!("  termwall --style KEY VALUE | KEY default | reset    or edit it: termwall --config");
@@ -426,6 +422,10 @@ pub fn run() {
         println!("opening {}", integrate::open_config(p));
         println!("save it and the wallpaper follows within a second; termwall check if something doesn't change");
         0
+    } else if has("--doctor") {
+        doctor::cmd_doctor(p)
+    } else if has("--settings") {
+        tui::cmd_settings(p)
     } else if has("--check") {
         cmd_check(p)
     } else if has("--themes") {

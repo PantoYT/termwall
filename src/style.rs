@@ -190,24 +190,79 @@ pub fn screen_tables(own: Option<&Map>) -> HashMap<String, Map> {
     out
 }
 
+/// Where a value the page uses comes from, lowest first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    Default,
+    File,
+    Livery,
+    Screen,
+}
+
+impl Source {
+    pub fn label(self, screen: Option<&str>) -> String {
+        match self {
+            Source::Default => "default".into(),
+            Source::File => "termwall.toml".into(),
+            Source::Livery => "livery (theme.json)".into(),
+            Source::Screen => format!("[screen.{}]", screen.unwrap_or("?")),
+        }
+    }
+}
+
+/// The layers the page's look is stacked from, kept apart so `termwall settings` can say where
+/// each value comes from: defaults < termwall.toml < theme.json's "style" (livery, per pack) <
+/// [screen.N] for the monitor asking.
+pub struct Layers {
+    pub file: Map,
+    pub livery: Map,
+    pub screens: HashMap<String, Map>,
+}
+
+impl Layers {
+    pub fn read(style_path: &Path, theme_path: &Path) -> Layers {
+        let themed = read_json(theme_path);
+        let mut own = load_config(style_path).0;
+        if own.is_none() && is_toml(style_path) && !style_path.exists() {
+            own = read_json(&style_path.with_file_name("termwall.json")).and_then(|v| v.as_object().cloned());
+        }
+        Layers {
+            file: clean_style(own.clone().map(Value::Object).as_ref()),
+            livery: clean_style(themed.as_ref().and_then(|t| t.get("style"))),
+            screens: screen_tables(own.as_ref()),
+        }
+    }
+
+    /// One value as the page on this screen gets it, and where it comes from.
+    pub fn value(&self, key: &str, screen: Option<&str>) -> (Option<Value>, Source) {
+        if let Some(v) = screen.and_then(|n| self.screens.get(n)).and_then(|t| t.get(key)) {
+            return (Some(v.clone()), Source::Screen);
+        }
+        if let Some(v) = self.livery.get(key) {
+            return (Some(v.clone()), Source::Livery);
+        }
+        if let Some(v) = self.file.get(key) {
+            return (Some(v.clone()), Source::File);
+        }
+        (style_defaults().get(key).cloned(), Source::Default)
+    }
+
+    /// Everything the page on this screen gets.
+    pub fn resolve(&self, screen: Option<&str>) -> Map {
+        let mut out = style_defaults();
+        out.extend(self.file.clone());
+        out.extend(self.livery.clone());
+        if let Some(t) = screen.and_then(|n| self.screens.get(n)) {
+            out.extend(t.clone());
+        }
+        out
+    }
+}
+
 /// defaults < termwall.toml < theme.json's "style" (livery, per pack) < [screen.N] for the
 /// monitor asking.
 pub fn read_style(style_path: &Path, theme_path: &Path, screen: Option<&str>) -> Map {
-    let themed = read_json(theme_path);
-    let mut own = load_config(style_path).0;
-    if own.is_none() && is_toml(style_path) && !style_path.exists() {
-        own = read_json(&style_path.with_file_name("termwall.json")).and_then(|v| v.as_object().cloned());
-    }
-    let own_v = own.clone().map(Value::Object);
-    let mut out = style_defaults();
-    out.extend(clean_style(own_v.as_ref()));
-    out.extend(clean_style(themed.as_ref().and_then(|t| t.get("style"))));
-    if let Some(n) = screen
-        && let Some(t) = screen_tables(own.as_ref()).remove(n)
-    {
-        out.extend(t);
-    }
-    out
+    Layers::read(style_path, theme_path).resolve(screen)
 }
 
 /// `?screen=N` from the page (two digits at most).
@@ -251,7 +306,7 @@ pub fn parse_value(key: &str, value: &str) -> Value {
 }
 
 /// What each setting does, for the comments in termwall.toml (the choices come from the spec).
-fn doc(key: &str) -> &'static str {
+pub fn doc(key: &str) -> &'static str {
     match key {
         "layout" => {
             "How the screen is laid out.\n\
@@ -606,6 +661,72 @@ pub fn check_config(path: &Path) -> Vec<String> {
         }
     }
     problems
+}
+
+/// One setting written to termwall.toml at once, in the main table or in [screen.N]; None
+/// removes it there (a table left empty goes too). The value has to pass the setting's check.
+/// Everything else in the file (unknown keys, the other tables) stays. Returns the file's map.
+pub fn write_value(path: &Path, screen: Option<&str>, key: &str, value: Option<Value>) -> Result<Map, String> {
+    let s = setting(key).ok_or_else(|| format!("unknown setting '{key}'"))?;
+    let value = match value {
+        Some(v) => Some(s.check.check(&v).ok_or_else(|| format!("{key}: {}", s.check.help()))?),
+        None => None,
+    };
+    if let Some(n) = screen
+        && (n.is_empty() || !n.chars().all(|c| c.is_ascii_digit()))
+    {
+        return Err(format!("screen {n}: has to be a number"));
+    }
+    let path = ensure_config(path).map_err(|e| e.to_string())?;
+    let (raw, err) = load_config(&path);
+    if let Some(e) = err {
+        return Err(format!("{e}: fix that line by hand first"));
+    }
+    let mut cur = raw.unwrap_or_default();
+    let put = |table: &mut Map| match value {
+        Some(v) => {
+            table.insert(key.into(), v);
+        }
+        None => {
+            table.shift_remove(key);
+        }
+    };
+    match screen {
+        None => put(&mut cur),
+        Some(n) => {
+            let mut screens = cur.get("screen").and_then(Value::as_object).cloned().unwrap_or_default();
+            let mut table = screens.get(n).and_then(Value::as_object).cloned().unwrap_or_default();
+            put(&mut table);
+            if table.is_empty() {
+                screens.shift_remove(n);
+            } else {
+                screens.insert(n.into(), Value::Object(table));
+            }
+            if screens.is_empty() {
+                cur.shift_remove("screen");
+            } else {
+                cur.insert("screen".into(), Value::Object(screens));
+            }
+        }
+    }
+    write_style(&cur, &path).map_err(|e| e.to_string())?;
+    Ok(cur)
+}
+
+/// A value as `termwall --style` and `termwall settings` show it: on/off, lists comma-separated.
+pub fn show_value(key: &str, v: Option<&Value>) -> String {
+    let text = match (key, v) {
+        ("colors", Some(Value::Object(c))) if !c.is_empty() => c.values().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
+        (_, None) | ("colors", _) => String::new(),
+        (_, Some(Value::Array(a))) => {
+            a.iter().map(|x| x.as_str().map(String::from).unwrap_or_else(|| x.to_string())).collect::<Vec<_>>().join(",")
+        }
+        (_, Some(Value::Bool(b))) => (if *b { "on" } else { "off" }).into(),
+        (_, Some(Value::String(s))) => s.clone(),
+        (_, Some(Value::Number(n))) if n.is_f64() => py_float(n.as_f64().unwrap_or(0.0)),
+        (_, Some(v)) => v.to_string(),
+    };
+    if text.is_empty() { "-".into() } else { text }
 }
 
 /// One setting from the command line; "default" removes it, key "reset" clears them all. Keys

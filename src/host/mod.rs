@@ -105,6 +105,92 @@ pub fn init_script() -> String {
     }
 }
 
+pub use audio::Device;
+
+/// The playback devices and how loud each plays (Windows; elsewhere none yet).
+pub fn playback_devices(ms: u64) -> Vec<Device> {
+    #[cfg(windows)]
+    {
+        audio::capture::devices(ms)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = ms;
+        Vec::new()
+    }
+}
+
+/// Split a command line the way Windows' C runtime does for the cases termwall writes: quotes
+/// group, a backslash before a quote escapes it.
+pub fn split_command_line(s: &str) -> Vec<String> {
+    let (mut out, mut cur, mut quoted, mut any) = (Vec::new(), String::new(), false, false);
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'"') => {
+                cur.push('"');
+                chars.next();
+                any = true;
+            }
+            '"' => {
+                quoted = !quoted;
+                any = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if any {
+                    out.push(std::mem::take(&mut cur));
+                    any = false;
+                }
+            }
+            c => {
+                cur.push(c);
+                any = true;
+            }
+        }
+    }
+    if any {
+        out.push(cur);
+    }
+    out
+}
+
+/// The host's autostart: the command it runs at logon and its options, or None when it is off.
+pub fn autostart_state() -> Option<(String, Options)> {
+    #[cfg(windows)]
+    {
+        let cmd = windows::autostart_entry()?;
+        let args = split_command_line(&cmd);
+        let at = args.iter().position(|a| a == "host").map(|i| i + 1).unwrap_or(args.len());
+        let opts = parse(&args[at..]).unwrap_or_default();
+        Some((cmd, opts))
+    }
+    #[cfg(not(windows))]
+    None
+}
+
+/// `termwall host on|off` without printing (for `termwall settings`).
+pub fn set_autostart(on: bool, opts: &Options) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        windows::set_autostart(on, opts)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (on, opts);
+        Err("termwall host runs on Windows for now".into())
+    }
+}
+
+/// The WebView2 runtime's version, or why there is none.
+pub fn webview2_version() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        wry::webview_version().map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    Err("not on Windows".into())
+}
+
 pub fn cmd_host(args: &[String], paths: &Paths) -> i32 {
     let opts = match parse(args) {
         Ok(o) => o,
@@ -155,5 +241,19 @@ mod tests {
         );
         assert_eq!(page_url(Path::new("/usr/share/termwall/index.html"), 1), "file:///usr/share/termwall/index.html?screen=1");
         assert!(WE_API.contains("wallpaperRegisterAudioListener") && WE_API.contains("__termwallHost"));
+    }
+
+    #[test]
+    fn the_autostart_command_line_splits_back() {
+        let s = r#""C:\Program Files\termwall\termwallw.exe" host --monitor 2 --audio-device "Sonar - Media""#;
+        assert_eq!(
+            split_command_line(s),
+            ["C:\\Program Files\\termwall\\termwallw.exe", "host", "--monitor", "2", "--audio-device", "Sonar - Media"]
+        );
+        let args = split_command_line(s);
+        let o = parse(&args[2..]).expect("the options parse");
+        assert_eq!((o.monitor, o.audio_device.as_deref()), (Some(2), Some("Sonar - Media")));
+        assert_eq!(split_command_line(r#"a "" b\"c"#), ["a", "", "b\"c"]);
+        assert!(split_command_line("   ").is_empty());
     }
 }

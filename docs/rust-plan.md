@@ -352,6 +352,33 @@ Open: the real-world checks named above, whether `termwall` without arguments st
 autostart for now, `--audio-device NAME` the override), CPU and memory next to Wallpaper Engine, a manifest in the exe.
 With the GNU toolchain `WebView2Loader.dll` has to sit next to the exe; MSVC links it in.
 
+## termwall settings and termwall doctor (next release)
+
+`termwall settings` is a keyboard-first TUI (ratatui 0.30 over crossterm 0.29, mouse optional)
+over the same spec that drives `--style`: its rows are `style::spec()` sorted into groups (look,
+logo, colors, sections, music, host), and a test fails when a setting has no group. Every change
+goes through the writer `--style` uses, at once; the wallpaper polls `/theme` four times a
+second, so it is the preview. Next to each value: where it comes from (default, termwall.toml,
+livery's theme.json "style", `[screen.N]`), from the same layering `read_style` uses, so the two
+can't disagree. A key livery overrides says so on its row. `s` switches the scope between all
+screens and one `[screen.N]` table. Pickers: logos (search, preview in the logo's own colors),
+themes (swatches), checklists (hide, effects), a line editor (prompt, colors, logo colors).
+Host rows (Windows): autostart on/off, monitor, audio device; they rewrite the autostart entry.
+
+`termwall doctor` gathers facts, then judges them in a function tests can feed: who holds the
+port (process and path), the running version against this binary and the installed copy,
+whether the wallpaper's requests are refused (another token.js), old logon entries that start
+the Python server, the WebView2 runtime, the host autostart, termwall.toml problems and livery
+overrides, and for the visualizer which output device plays against what Wallpaper Engine (its
+config.json) or the host listens to. Plain text, exit 1 on a real problem.
+
+Status (2026-11-21): both written, on main, not released. Tests cover the groups against the
+spec, stepping values, typed lines, sources and write-through (main table and `[screen.N]`,
+livery winning), the TUI driven by keys on ratatui's test backend, and doctor's judgement on
+made-up facts (the Python server ahead of the installed one, a refused token, music on
+another device than Wallpaper Engine hears). On this PC: doctor reports correctly; the TUI
+draws in Windows Terminal; keys were tried only on the test backend.
+
 ## Phase 3: Linux host
 
 `gtk4` + `webkit6` + `gtk4-layer-shell`, the same as `linux/termwall-layer.py` with the same
