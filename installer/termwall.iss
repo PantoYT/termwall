@@ -61,7 +61,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\termwall.exe"; Parameters: "--link-we"; Flags: runhidden waituntilterminated
 ; and Lively Wallpaper's library (skipped if Lively isn't there)
 Filename: "{app}\termwall.exe"; Parameters: "--link-lively"; Flags: runhidden waituntilterminated
-Filename: "{app}\termwallw.exe"; Flags: nowait
+; Start it now, except in a silent install (winget, scripts): there it starts at the next logon from
+; the autostart entry, so nothing long-running is left behind for an unattended installer to wait on
+Filename: "{app}\termwallw.exe"; Flags: nowait skipifsilent
 
 [UninstallRun]
 Filename: "{app}\termwall.exe"; Parameters: "--stop"; Flags: runhidden waituntilterminated; RunOnceId: "stop"

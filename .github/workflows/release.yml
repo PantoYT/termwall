@@ -46,16 +46,23 @@ jobs:
         shell: pwsh
         run: |
           $exe = Get-ChildItem build -Filter 'termwall-setup-*.exe' | Select-Object -First 1
-          # -Wait would also wait for the stats server the installer leaves running (a child, forever)
-          (Start-Process $exe.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru).WaitForExit()
+          # A silent install (as winget runs it) must finish without leaving anything running
+          $p = Start-Process $exe.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru
+          if (-not $p.WaitForExit(300000)) { throw 'the silent install did not finish in 5 minutes' }
           $app = Join-Path $env:LOCALAPPDATA 'Programs\termwall'
           if (-not (Test-Path "$app\index.html")) { throw "nothing installed in $app" }
           if (Test-Path "$app\python") { throw 'the installer still ships a Python' }
           & "$app\termwall.exe" --version
           if ($LASTEXITCODE -ne 0) { throw 'termwall.exe failed' }
           if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $app) { throw 'not on PATH' }
+          Start-Sleep 2
+          if (Get-Process termwallw -ErrorAction SilentlyContinue) { throw 'a silent install started termwallw (skipifsilent missing)' }
+          # what the next logon does: the autostart entry's command
+          $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').termwall
+          if (-not $run) { throw 'no autostart entry' }
+          Start-Process ($run.Trim('"'))
           Start-Sleep 4
-          if (-not (Get-Process termwallw -ErrorAction SilentlyContinue)) { throw 'termwallw (the server) is not running after install' }
+          if (-not (Get-Process termwallw -ErrorAction SilentlyContinue)) { throw 'termwallw (the server) is not running from the autostart entry' }
           $ok = $false
           try { Invoke-WebRequest 'http://127.0.0.1:9002/theme' -UseBasicParsing | Out-Null } catch { $ok = $_.Exception.Response.StatusCode.value__ -eq 403 }
           if (-not $ok) { throw 'the stats server did not answer after install' }
