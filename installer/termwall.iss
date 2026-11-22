@@ -61,9 +61,12 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\termwall.exe"; Parameters: "--link-we"; Flags: runhidden waituntilterminated
 ; and Lively Wallpaper's library (skipped if Lively isn't there)
 Filename: "{app}\termwall.exe"; Parameters: "--link-lively"; Flags: runhidden waituntilterminated
-; Start it now, except in a silent install (winget, scripts): there it starts at the next logon from
-; the autostart entry, so nothing long-running is left behind for an unattended installer to wait on
+; Start it now, except in a silent first install (winget, scripts): there it starts at the next
+; logon from the autostart entry, so nothing long-running is left behind for an unattended
+; installer to wait on. A silent update over an installed copy (termwall update) starts it again,
+; since the old server was just closed.
 Filename: "{app}\termwallw.exe"; Flags: nowait skipifsilent
+Filename: "{app}\termwallw.exe"; Flags: nowait; Check: SilentUpdate
 
 [UninstallRun]
 Filename: "{app}\termwall.exe"; Parameters: "--stop"; Flags: runhidden waituntilterminated; RunOnceId: "stop"
@@ -82,6 +85,22 @@ Type: filesandordirs; Name: "{app}\selftest-tmp"
 [Code]
 const
   EnvKey = 'Environment';
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F1D2C0B-8E54-4C47-9B6A-3C2E7D9F4A11}_is1';
+
+var
+  Upgrade: Boolean;
+
+function InitializeSetup(): Boolean;
+begin
+  // installed before: this is an update (termwall update runs this silently)
+  Upgrade := RegKeyExists(HKCU, UninstallKey) or RegKeyExists(HKLM, UninstallKey);
+  Result := True;
+end;
+
+function SilentUpdate(): Boolean;
+begin
+  Result := WizardSilent and Upgrade;
+end;
 
 // `termwall` in new terminals: {app} on the user's PATH (termwall.exe lives there)
 procedure PathAdd(Dir: string);

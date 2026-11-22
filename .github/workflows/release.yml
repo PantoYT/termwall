@@ -71,6 +71,16 @@ jobs:
           $t = (Get-Content "$app\token.js" -Raw) -replace '(?s).*"(.+)".*', '$1'
           $s = Invoke-RestMethod "http://127.0.0.1:9002/stats?t=$t"
           if (-not $s.cpu_model -or $s.cores -lt 1) { throw '/stats has no data' }
+          # a silent update over the running server (what termwall update does) starts the new one
+          $old = (Get-Process termwallw).Id
+          $p = Start-Process $exe.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru
+          if (-not $p.WaitForExit(300000)) { throw 'the silent update did not finish in 5 minutes' }
+          Start-Sleep 4
+          $new = Get-Process termwallw -ErrorAction SilentlyContinue
+          if (-not $new) { throw 'a silent update left the server stopped' }
+          if ($new.Id -contains $old) { throw 'the old server kept running through the update' }
+          $h = Invoke-RestMethod 'http://127.0.0.1:9002/health'
+          if (-not $h.termwall) { throw 'the server did not answer after the update' }
           & "$app\termwall.exe" --stop
           Start-Sleep 2
           if (Get-Process termwallw -ErrorAction SilentlyContinue) { throw '--stop left the server running' }

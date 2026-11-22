@@ -30,7 +30,7 @@ Experimental, at your own risk: your own blocks as `[block.NAME]` tables with `t
 
 ## Smaller things
 
-- The installer no longer starts termwall at the end of a silent install (winget); it starts at
-  the next logon.
+- A silent first install (winget) no longer starts termwall at the end; it starts at the next
+  logon. A silent update over an installed copy (`termwall update`) still starts the new server.
 - A key termwall.toml doesn't know (from a newer version) is written above the `[screen.N]`
   tables, so a rewrite no longer moves it into the last table.
