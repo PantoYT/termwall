@@ -32,6 +32,188 @@ enum Mode {
     Check { key: &'static str, list: &'static [&'static str], at: usize },
     Logo { query: String, found: Vec<String>, at: usize },
     Theme { at: usize, before: Option<Value> },
+    Blocks(Grid),
+}
+
+/// What a pick from the list of blocks does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Pick {
+    Add,
+    Replace,
+    NewRow,
+}
+
+/// The blocks editor: rows of "name" or "name:N", a cursor, and the list it picks from.
+#[derive(Clone, Debug, PartialEq)]
+struct Grid {
+    rows: Vec<Vec<String>>,
+    r: usize,
+    c: usize,
+    choose: Option<(Pick, usize)>,
+}
+
+impl Grid {
+    fn from_value(v: Option<&Value>) -> Grid {
+        let rows: Vec<Vec<String>> = v
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| r.as_array().map(|r| r.iter().filter_map(|x| x.as_str().map(String::from)).collect()))
+                    .filter(|r: &Vec<String>| !r.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let rows = if rows.is_empty() { vec![vec!["clock".to_string()]] } else { rows };
+        Grid { rows, r: 0, c: 0, choose: None }
+    }
+
+    fn value(&self) -> Value {
+        Value::from(self.rows.iter().map(|r| Value::from(r.clone())).collect::<Vec<_>>())
+    }
+
+    fn split(item: &str) -> (&str, u8) {
+        match item.split_once(':') {
+            Some((n, w)) => (n, w.parse().unwrap_or(1)),
+            None => (item, 1),
+        }
+    }
+
+    fn join(name: &str, w: u8) -> String {
+        if w <= 1 { name.to_string() } else { format!("{name}:{w}") }
+    }
+
+    fn clamp(&mut self) {
+        self.r = self.r.min(self.rows.len().saturating_sub(1));
+        self.c = self.c.min(self.rows[self.r].len().saturating_sub(1));
+    }
+
+    /// One editing key. True when the grid changed (and has to be written).
+    fn key(&mut self, code: KeyCode, shift: bool, names: &[String]) -> bool {
+        if let Some((pick, at)) = self.choose {
+            match code {
+                KeyCode::Up | KeyCode::Char('k') => self.choose = Some((pick, at.saturating_sub(1))),
+                KeyCode::Down | KeyCode::Char('j') => self.choose = Some((pick, (at + 1).min(names.len().saturating_sub(1)))),
+                KeyCode::Esc => self.choose = None,
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.choose = None;
+                    let Some(name) = names.get(at).cloned() else { return false };
+                    match pick {
+                        Pick::Add => {
+                            let at = (self.c + 1).min(self.rows[self.r].len());
+                            if self.rows[self.r].len() < 6 {
+                                self.rows[self.r].insert(at, name);
+                                self.c = at;
+                            }
+                        }
+                        Pick::Replace => {
+                            let w = Self::split(&self.rows[self.r][self.c]).1;
+                            self.rows[self.r][self.c] = Self::join(&name, w);
+                        }
+                        Pick::NewRow => {
+                            if self.rows.len() < 8 {
+                                self.rows.insert(self.r + 1, vec![name]);
+                                self.r += 1;
+                                self.c = 0;
+                            }
+                        }
+                    }
+                    return true;
+                }
+                _ => {}
+            }
+            return false;
+        }
+        let open = |g: &mut Grid, pick: Pick| {
+            let cur = Self::split(&g.rows[g.r][g.c]).0.to_string();
+            g.choose = Some((pick, names.iter().position(|n| *n == cur).unwrap_or(0)));
+        };
+        let changed = match code {
+            KeyCode::Left | KeyCode::Char('<') if shift || code == KeyCode::Char('<') => {
+                if self.c > 0 {
+                    self.rows[self.r].swap(self.c, self.c - 1);
+                    self.c -= 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            KeyCode::Right | KeyCode::Char('>') if shift || code == KeyCode::Char('>') => {
+                if self.c + 1 < self.rows[self.r].len() {
+                    self.rows[self.r].swap(self.c, self.c + 1);
+                    self.c += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            KeyCode::Up | KeyCode::Down if shift => {
+                let to = if code == KeyCode::Up { self.r.checked_sub(1) } else { Some(self.r + 1) };
+                match to.filter(|t| *t < self.rows.len() && self.rows[*t].len() < 6) {
+                    Some(t) => {
+                        let item = self.rows[self.r].remove(self.c);
+                        self.rows[t].push(item);
+                        if self.rows[self.r].is_empty() {
+                            self.rows.remove(self.r);
+                        }
+                        self.r = if self.rows.len() > t { t } else { t - 1 }.min(self.rows.len() - 1);
+                        self.c = self.rows[self.r].len() - 1;
+                        true
+                    }
+                    None => false,
+                }
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                self.c = self.c.saturating_sub(1);
+                false
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                self.c += 1;
+                false
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.r = self.r.saturating_sub(1);
+                false
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.r += 1;
+                false
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Char('-') => {
+                let (name, w) = Self::split(&self.rows[self.r][self.c]);
+                let w = if code == KeyCode::Char('-') { w.saturating_sub(1).max(1) } else { (w + 1).min(6) };
+                let next = Self::join(name, w);
+                let changed = next != self.rows[self.r][self.c];
+                self.rows[self.r][self.c] = next;
+                changed
+            }
+            KeyCode::Delete | KeyCode::Backspace | KeyCode::Char('x') => {
+                if self.rows.iter().map(Vec::len).sum::<usize>() > 1 {
+                    self.rows[self.r].remove(self.c);
+                    if self.rows[self.r].is_empty() {
+                        self.rows.remove(self.r);
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            KeyCode::Char('a') => {
+                open(self, Pick::Add);
+                false
+            }
+            KeyCode::Char('n') => {
+                open(self, Pick::NewRow);
+                false
+            }
+            KeyCode::Enter | KeyCode::Char('r') => {
+                open(self, Pick::Replace);
+                false
+            }
+            _ => false,
+        };
+        self.clamp();
+        changed
+    }
 }
 
 struct App {
@@ -211,6 +393,10 @@ impl App {
                 let at = found.iter().position(|x| *x == cur).unwrap_or(0);
                 self.mode = Mode::Logo { query: String::new(), found, at };
             }
+            Edit::Blocks => {
+                let from = v.written.as_ref().or(if v.overridden { None } else { v.effective.as_ref() });
+                self.mode = Mode::Blocks(Grid::from_value(from));
+            }
             Edit::Theme => {
                 let list = theme_list();
                 let cur = v.effective.as_ref().and_then(Value::as_str).unwrap_or("auto");
@@ -330,7 +516,28 @@ impl App {
                 self.say(r);
                 self.mode = Mode::Theme { at, before };
             }
+            Mode::Blocks(mut g) => {
+                if g.choose.is_none() && matches!(k.code, KeyCode::Esc | KeyCode::Char('q')) {
+                    return;
+                }
+                if g.choose.is_none() && k.code == KeyCode::Char('L') {
+                    let r = self.m.set("layout", Some(Value::from("custom")));
+                    self.say(r);
+                } else if g.key(k.code, k.modifiers.contains(KeyModifiers::SHIFT), &self.block_names()) {
+                    let r = self.m.set("blocks", Some(g.value()));
+                    self.say(r);
+                }
+                self.mode = Mode::Blocks(g);
+            }
         }
+    }
+
+    /// The blocks to pick from: the built-in ones, then your own [block.NAME].
+    fn block_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = style::BLOCKS.iter().map(|s| s.to_string()).collect();
+        let own = style::load_config(&self.m.paths.style_file).0;
+        out.extend(crate::blocks::defs(own.as_ref()).0.into_iter().map(|d| d.name));
+        out
     }
 
     fn toggle(&mut self, key: &'static str, item: &str) {
@@ -571,6 +778,9 @@ impl App {
             Mode::Check { .. } => " up/down  Space tick (written at once)  Enter/Esc close",
             Mode::Logo { .. } => " type to search  up/down  Enter use it  Esc cancel",
             Mode::Theme { .. } => " up/down (the wallpaper follows)  Enter keep  Esc put back",
+            Mode::Blocks(_) => {
+                " arrows move  shift+arrows carry  +/- width  a add  n new row  Enter swap  Del remove  L layout custom  Esc close"
+            }
         };
         f.render_widget(Paragraph::new(Span::styled(help, Style::default().fg(Color::DarkGray))), keys);
 
@@ -633,6 +843,69 @@ impl App {
                     .collect();
                 let title = if *key == "hide" { " sections to hide " } else { " effects " };
                 f.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(title)), r);
+            }
+            Mode::Blocks(g) => {
+                let names = self.block_names();
+                let r =
+                    centered(area.width.saturating_sub(8).min(100), (g.rows.len() as u16 * 2 + 6).max(names.len() as u16 + 4));
+                f.render_widget(Clear, r);
+                let [left, right] = Layout::horizontal([Constraint::Min(30), Constraint::Length(24)]).areas(r);
+                let layout = self
+                    .m
+                    .layers
+                    .resolve(self.m.scope.as_deref())
+                    .get("layout")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let mut lines = vec![if layout == "custom" {
+                    Line::from(Span::styled("the wallpaper shows these as you change them", Style::default().fg(Color::DarkGray)))
+                } else {
+                    Line::from(Span::styled(
+                        format!("layout is {layout}: L switches to custom to see these"),
+                        Style::default().fg(Color::Yellow),
+                    ))
+                }];
+                lines.push(Line::from(""));
+                for (ri, row) in g.rows.iter().enumerate() {
+                    let mut spans = Vec::new();
+                    for (ci, item) in row.iter().enumerate() {
+                        let (name, w) = Grid::split(item);
+                        let label = if w > 1 { format!(" {name} x{w} ") } else { format!(" {name} ") };
+                        let st = if ri == g.r && ci == g.c { sel } else { Style::default().add_modifier(Modifier::REVERSED) };
+                        spans.push(Span::styled(label, st));
+                        spans.push(Span::raw(" "));
+                    }
+                    lines.push(Line::from(spans));
+                    lines.push(Line::from(""));
+                }
+                f.render_widget(
+                    Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" blocks (layout custom) ")),
+                    left,
+                );
+                let title = match g.choose {
+                    Some((Pick::Add, _)) => " add which ",
+                    Some((Pick::NewRow, _)) => " new row with ",
+                    Some((Pick::Replace, _)) => " swap for ",
+                    None => " blocks ",
+                };
+                let builtin = style::BLOCKS.len();
+                let items: Vec<Line> = names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        let st = if g.choose.is_some_and(|(_, at)| at == i) {
+                            sel
+                        } else if i >= builtin {
+                            Style::default().fg(Color::Yellow)
+                        } else {
+                            Style::default()
+                        };
+                        let tag = if i >= builtin { " (yours)" } else { "" };
+                        Line::from(Span::styled(format!(" {n}{tag}"), st))
+                    })
+                    .collect();
+                f.render_widget(Paragraph::new(items).block(Block::default().borders(Borders::ALL).title(title)), right);
             }
             Mode::Theme { at, .. } => {
                 let list = theme_list();
@@ -859,6 +1132,37 @@ mod tests {
         assert_eq!(Layers::read(&paths.style_file, &paths.theme_file).file["prompt"], "btop");
         press(&mut app, &[KeyCode::Char('q')]);
         assert!(app.quit);
+    }
+
+    #[test]
+    fn the_blocks_editor() {
+        let names: Vec<String> = style::BLOCKS.iter().map(|s| s.to_string()).chain(["notes".to_string()]).collect();
+        let mut g = Grid::from_value(Some(&serde_json::json!([["logo", "info"], ["cpu"]])));
+        let k = |g: &mut Grid, code: KeyCode, shift: bool| g.key(code, shift, &names);
+        assert!(!k(&mut g, KeyCode::Right, false) && g.c == 1, "arrows move");
+        assert!(k(&mut g, KeyCode::Left, true), "shift carries");
+        assert_eq!(g.rows[0], ["info", "logo"]);
+        assert!(k(&mut g, KeyCode::Char('+'), false));
+        assert_eq!(g.rows[0][0], "info:2");
+        assert!(k(&mut g, KeyCode::Down, true), "down to the next row");
+        assert_eq!(g.value(), serde_json::json!([["logo"], ["cpu", "info:2"]]));
+        // a: add, pick "notes" (your own) from the list
+        assert!(!k(&mut g, KeyCode::Char('a'), false) && g.choose.is_some());
+        for _ in 0..names.len() {
+            k(&mut g, KeyCode::Down, false);
+        }
+        assert!(k(&mut g, KeyCode::Enter, false));
+        assert_eq!(g.rows[1], ["cpu", "info:2", "notes"]);
+        // n: a new row; Del empties it again
+        k(&mut g, KeyCode::Char('n'), false);
+        assert!(k(&mut g, KeyCode::Enter, false));
+        assert_eq!(g.rows.len(), 3);
+        assert!(k(&mut g, KeyCode::Delete, false));
+        assert_eq!(g.rows.len(), 2, "an emptied row goes");
+        assert!(style::setting("blocks").unwrap().check.check(&g.value()).is_some(), "what it writes passes the spec");
+        // the last block stays
+        let mut one = Grid::from_value(Some(&serde_json::json!([["clock"]])));
+        assert!(!one.key(KeyCode::Delete, false, &names));
     }
 
     #[test]

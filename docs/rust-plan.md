@@ -379,6 +379,22 @@ made-up facts (the Python server ahead of the installed one, a refused token, mu
 another device than Wallpaper Engine hears). On this PC: doctor reports correctly; the TUI
 draws in Windows Terminal; keys were tried only on the test backend.
 
+## Layout custom (3.1)
+
+`layout = "custom"`: rows of blocks from `blocks` in termwall.toml (a style key like any other,
+so livery's per-pack look and `[screen.N]` can set it too). The page clones each block from a
+`<template>` (the board's boxes, the fetch's clock, logo, info, visualizer); `put()` and `tick()`
+already fill every element by name, so no data code changed. A row of only unboxed blocks takes
+its natural height, the others share the rest; `name:N` gives a block N shares of its row.
+
+Your own blocks, experimental: `[block.NAME]` with `text`, `file` or `command`, read by a thread
+of the server (src/blocks.rs) and handed to the page through `/theme` on 127.0.0.1 as plain
+text (`textContent`, never HTML). Commands need `experimental_commands = true` in termwall.toml;
+theme.json's "style" goes through the spec, which has no such key, so a switcher can't turn
+commands on or define blocks. Each command: `cmd /C` or `sh -c` in termwall.toml's folder,
+10 s at most (the whole process tree is killed), 40 lines. `termwall share` doesn't send them.
+The Python server (Linux, 2.4) doesn't know `custom` and shows `fetch`.
+
 ## Phase 3: Linux host
 
 `gtk4` + `webkit6` + `gtk4-layer-shell`, the same as `linux/termwall-layer.py` with the same

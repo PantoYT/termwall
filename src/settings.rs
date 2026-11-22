@@ -40,7 +40,7 @@ impl Group {
 pub fn group_of(key: &str) -> Option<Group> {
     Some(match key {
         "layout" | "bars" | "rotate" | "font" | "scale" | "effects" | "clock" | "seconds" | "date" | "prompt"
-        | "prompt_color" | "private" => Group::Look,
+        | "prompt_color" | "private" | "blocks" => Group::Look,
         "logo" | "logo_width" | "logo_chars" | "logo_colors" => Group::Logo,
         "theme" | "colors" => Group::Colors,
         "hide" => Group::Sections,
@@ -73,8 +73,9 @@ impl Row {
 
 /// The order rows are shown in (the most used first); a key not listed comes after, in the
 /// spec's order.
-const SHOWN_FIRST: [&str; 13] = [
+const SHOWN_FIRST: [&str; 14] = [
     "layout",
+    "blocks",
     "font",
     "scale",
     "effects",
@@ -114,12 +115,15 @@ pub enum Edit {
     Theme,
     /// a line of text
     Line,
+    /// the rows of blocks for layout = "custom"
+    Blocks,
 }
 
 pub fn edit_kind(row: Row) -> Edit {
     let Row::Setting(key) = row else { return Edit::Cycle };
     match style::setting(key).map(|s| &s.check) {
         Some(Check::Subset(list)) => Edit::Checklist(list),
+        Some(Check::Blocks) => Edit::Blocks,
         Some(Check::Logo) => Edit::Logo,
         Some(Check::Text | Check::Palette | Check::LogoColors) => Edit::Line,
         _ if key == "theme" => Edit::Theme,
@@ -490,7 +494,7 @@ mod tests {
     fn values_step_through_their_choices() {
         let s = |v: &str| Value::from(v);
         assert_eq!(cycle("layout", Some(&s("fetch")), 1), Some(s("board")));
-        assert_eq!(cycle("layout", Some(&s("fetch")), -1), Some(s("logo")), "lists wrap");
+        assert_eq!(cycle("layout", Some(&s("fetch")), -1), Some(s("custom")), "lists wrap");
         assert_eq!(cycle("layout", Some(&s("nonsense")), 1), Some(s("fetch")));
         assert_eq!(cycle("seconds", Some(&Value::from(true)), 1), Some(Value::from(false)));
         assert_eq!(cycle("sound_bars", Some(&Value::from(16)), 1), Some(Value::from(17)));

@@ -12,13 +12,17 @@ use crate::logos;
 use crate::theme::{self, THEMES, is_hex_color, palette_of};
 use crate::util::{self, Map, Value, py_float, read_json, stamp, write_in_place};
 
-pub const LAYOUTS: [&str; 7] = ["fetch", "board", "minimal", "htop", "portrait", "phone", "logo"];
+pub const LAYOUTS: [&str; 8] = ["fetch", "board", "minimal", "htop", "portrait", "phone", "logo", "custom"];
 pub const SECTIONS: [&str; 15] = [
     "prompt", "logo", "info", "clock", "cpu", "cores", "gpu", "memory", "disks", "network", "procs", "swatches", "music",
     "status", "sound",
 ];
 pub const FONTS: [&str; 6] = ["cascadia", "jetbrains", "fira", "iosevka", "consolas", "system"];
 pub const EFFECTS: [&str; 7] = ["crt", "glow", "flicker", "roll", "chroma", "curve", "noise"];
+/// What layout = "custom" is built from (your own [block.NAME] come on top).
+pub const BLOCKS: [&str; 14] = [
+    "prompt", "logo", "info", "clock", "music", "sound", "swatches", "cpu", "cores", "gpu", "memory", "disks", "network", "procs",
+];
 
 /// A value TOML can hold but JSON can't (a datetime, inf, nan), carried as its TOML text so a
 /// rewrite of termwall.toml keeps it. No setting accepts it (it is not printable text).
@@ -34,6 +38,8 @@ pub enum Check {
     Logo,
     LogoColors,
     Palette,
+    /// rows of block names for layout = "custom", "name:N" N times as wide
+    Blocks,
 }
 
 impl Check {
@@ -57,6 +63,7 @@ impl Check {
             Check::Logo => check_logo(v),
             Check::LogoColors => check_logo_colors(v),
             Check::Palette => palette_of(v).map(Value::Object),
+            Check::Blocks => check_blocks(v),
         }
     }
 
@@ -74,6 +81,11 @@ impl Check {
             }
             Check::LogoColors => "auto | own | palette | up to nine #rrggbb for $1, $2... (comma-separated)".into(),
             Check::Palette => "six #rrggbb colors (bg, accent, secondary, text, dim, faint): edit termwall.toml".into(),
+            Check::Blocks => format!(
+                "rows of blocks, a row \"/\" apart: logo,info,clock / cpu:2,memory (name:N = N times as wide); \
+blocks: {}, or your own [block.NAME]",
+                BLOCKS.join(", ")
+            ),
         }
     }
 }
@@ -105,6 +117,27 @@ fn check_logo_colors(v: &Value) -> Option<Value> {
         return ok.then(|| Value::from(l));
     }
     v.as_str().filter(|s| ["auto", "own", "palette", "image"].contains(s)).map(Value::from)
+}
+
+/// Up to eight rows of one to six blocks; a name may carry a width, "cpu:2" (1-6).
+fn check_blocks(v: &Value) -> Option<Value> {
+    let rows = v.as_array().filter(|r| (1..=8).contains(&r.len()))?;
+    let mut out = Vec::new();
+    for r in rows {
+        let items = r.as_array().filter(|i| (1..=6).contains(&i.len()))?;
+        let mut row = Vec::new();
+        for it in items {
+            let s = it.as_str()?;
+            let (name, w) = s.split_once(':').unwrap_or((s, "1"));
+            let w: u8 = w.parse().ok().filter(|w| (1..=6).contains(w))?;
+            if !crate::blocks::name_ok(name) {
+                return None;
+            }
+            row.push(Value::from(if w == 1 { name.to_string() } else { format!("{name}:{w}") }));
+        }
+        out.push(Value::Array(row));
+    }
+    Some(Value::Array(out))
 }
 
 pub struct Setting {
@@ -140,6 +173,7 @@ pub fn spec() -> &'static [Setting] {
             s("logo", Check::Logo),
             s("visualizer", Check::Choice(vec!["off", "bars", "pulse", "both"])),
             s("sound_bars", Check::Int(4, 32)),
+            s("blocks", Check::Blocks),
         ]
     })
 }
@@ -154,7 +188,8 @@ pub fn style_defaults() -> Map {
         "seconds": true, "date": "long", "hide": [], "private": false, "font": "cascadia",
         "scale": 1.0, "effects": [], "logo": "auto", "prompt_color": "text",
         "logo_width": 40, "logo_chars": "blocks", "logo_colors": "auto",
-        "visualizer": "off", "sound_bars": 16
+        "visualizer": "off", "sound_bars": 16,
+        "blocks": [["logo", "info", "clock"], ["cpu", "gpu", "memory"], ["disks", "network", "procs"]]
     });
     v.as_object().cloned().unwrap_or_default()
 }
@@ -284,6 +319,13 @@ pub fn parse_value(key: &str, value: &str) -> Value {
             "off" | "false" | "no" | "0" => Value::from(false),
             _ => Value::from(value),
         },
+        Check::Blocks => Value::Array(
+            value
+                .split(['/', ';'])
+                .map(|r| Value::from(r.split(',').map(str::trim).filter(|x| !x.is_empty()).collect::<Vec<_>>()))
+                .filter(|r| r.as_array().is_some_and(|a| !a.is_empty()))
+                .collect(),
+        ),
         Check::Subset(_) => {
             if value.is_empty() || value.eq_ignore_ascii_case("none") {
                 Value::Array(vec![])
@@ -313,7 +355,8 @@ pub fn doc(key: &str) -> &'static str {
 fetch = the fastfetch screen, board = boxes like btop, htop = meters and a big process\n\
 table, minimal = the clock and one line, portrait = for a monitor turned on its side,\n\
 phone = big gauges for a phone (termwall share uses it when the phone is upright),\n\
-logo = the logo as big as the screen, with who you are under it (a second monitor)"
+logo = the logo as big as the screen, with who you are under it (a second monitor),
+custom = your own grid of blocks (blocks below)"
         }
         "bars" => "How meters are drawn: blocks ████, shade ▓▓░░, dots ■■··, line ━━──",
         "rotate" => "Minutes between layouts (fetch, board, minimal, htop, again); 0 = off",
@@ -367,6 +410,12 @@ with hide = [\"sound\"]), in the logo's colors (logo = \"apple\" with logo_color
 a rainbow); pulse = the logo beats with the bass (layout logo); both = the two"
         }
         "sound_bars" => "How many bars the spectrum in fetch has, bass on the left",
+        "blocks" => {
+            "layout = \"custom\": rows of blocks, top to bottom, e.g.\n\
+[[\"logo\", \"info\", \"clock\"], [\"cpu:2\", \"memory\"], [\"procs\"]] (\"cpu:2\" is twice as wide).\n\
+A row of only clock, logo, info, music, sound, swatches or prompt is as tall as it needs; the\n\
+other rows share the rest. Your own blocks: [block.NAME] tables at the end of this file"
+        }
         "font" => {
             "The font. cascadia comes with Windows 11; jetbrains, fira and iosevka come with termwall;\n\
 consolas and system (the browser's monospace) are always there"
@@ -486,26 +535,47 @@ pub fn render_config(cur: &Map) -> String {
         }
         out.push(String::new());
     }
-    let mut tables: Vec<(&String, &Value)> =
-        cur.get("screen").and_then(Value::as_object).map(|m| m.iter().collect()).unwrap_or_default();
-    tables.sort_by(|a, b| a.0.cmp(b.0));
-    for (n, t) in tables {
-        if let Some(t) = t.as_object() {
-            out.push(format!("[screen.{n}]"));
-            for (k, v) in t {
-                if let Some(v) = toml_value(v) {
-                    out.push(format!("{k} = {v}"));
-                }
-            }
-            out.push(String::new());
-        }
+    for line in [
+        "EXPERIMENTAL, at your own risk: your own blocks for layout = \"custom\", as [block.NAME]",
+        "tables at the end of this file. Each has a title and one of: text = \"...\", file = \"notes.txt\"",
+        "(next to this file, read every 5 seconds) or command = \"...\" (its output, every = 60",
+        "seconds by default; plain text, 40 lines). Then put NAME into blocks. Commands run as you,",
+        "with your rights, so only when this is true; copy none from anyone you don't trust.",
+        "  [block.uptime]",
+        "  title = \"UPTIME\"",
+        "  command = \"uptime\"",
+        "  every = 60",
+    ] {
+        out.push(format!("# {line}"));
     }
-    let extra: Vec<(&String, &Value)> = cur.iter().filter(|(k, _)| setting(k).is_none() && k.as_str() != "screen").collect();
+    let gate = cur.get(crate::blocks::GATE).and_then(Value::as_bool).unwrap_or(false);
+    out.push(format!("{} = {gate}", crate::blocks::GATE));
+    out.push(String::new());
+    let special = |k: &str| k == "screen" || k == "block" || k == crate::blocks::GATE;
+    let extra: Vec<(&String, &Value)> = cur.iter().filter(|(k, _)| setting(k).is_none() && !special(k)).collect();
     if !extra.is_empty() {
         out.push("# from a newer termwall (kept as they were)".into());
         for (k, v) in extra {
             if let Some(v) = toml_value(v) {
                 out.push(format!("{k} = {v}"));
+            }
+        }
+        out.push(String::new());
+    }
+    // the tables last: a key after a [table] header belongs to that table
+    for table in ["screen", "block"] {
+        let mut tables: Vec<(&String, &Value)> =
+            cur.get(table).and_then(Value::as_object).map(|m| m.iter().collect()).unwrap_or_default();
+        tables.sort_by(|a, b| a.0.cmp(b.0));
+        for (n, t) in tables {
+            if let Some(t) = t.as_object() {
+                out.push(format!("[{table}.{n}]"));
+                for (k, v) in t {
+                    if let Some(v) = toml_value(v) {
+                        out.push(format!("{k} = {v}"));
+                    }
+                }
+                out.push(String::new());
             }
         }
     }
@@ -628,8 +698,12 @@ pub fn check_config(path: &Path) -> Vec<String> {
         return vec![e];
     }
     let raw = raw.unwrap_or_default();
-    let mut problems = Vec::new();
-    let mut items: Vec<(String, Value)> = raw.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut problems = crate::blocks::defs(Some(&raw)).1;
+    if raw.get(crate::blocks::GATE).is_some_and(|v| !v.is_boolean()) {
+        problems.push(format!("{}: true or false", crate::blocks::GATE));
+    }
+    let mut items: Vec<(String, Value)> =
+        raw.iter().filter(|(k, _)| *k != "block" && *k != crate::blocks::GATE).map(|(k, v)| (k.clone(), v.clone())).collect();
     if let Some(screens) = raw.get("screen").and_then(Value::as_object) {
         items.retain(|(k, _)| k != "screen");
         for (n, t) in screens {
@@ -718,6 +792,10 @@ pub fn show_value(key: &str, v: Option<&Value>) -> String {
     let text = match (key, v) {
         ("colors", Some(Value::Object(c))) if !c.is_empty() => c.values().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
         (_, None) | ("colors", _) => String::new(),
+        // blocks: rows a "/" apart, as --style takes them
+        (_, Some(Value::Array(a))) if a.iter().all(Value::is_array) && !a.is_empty() => {
+            a.iter().map(|r| show_value(key, Some(r))).collect::<Vec<_>>().join(" / ")
+        }
         (_, Some(Value::Array(a))) => {
             a.iter().map(|x| x.as_str().map(String::from).unwrap_or_else(|| x.to_string())).collect::<Vec<_>>().join(",")
         }
@@ -739,7 +817,12 @@ pub fn set_style(key: &str, value: &str, path: &Path) -> Result<Map, String> {
     }
     let mut cur = raw.unwrap_or_default();
     if key == "reset" {
+        // your own blocks are content, like logo.txt: they stay (the switch for commands doesn't)
+        let blocks = cur.get("block").cloned();
         cur = Map::new();
+        if let Some(b) = blocks {
+            cur.insert("block".into(), b);
+        }
     } else if setting(key).is_none() {
         let names: Vec<&str> = spec().iter().map(|s| s.key).collect();
         return Err(format!("unknown setting '{key}' ({})", names.join(", ")));

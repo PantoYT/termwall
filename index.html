@@ -25,7 +25,7 @@ body{color:var(--grey);font:18px/1.34 var(--font);-webkit-font-smoothing:antiali
 #stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
 .layout{position:absolute;inset:0;display:none}
 body.L-fetch #fetch, body.L-board #board, body.L-minimal #minimal, body.L-htop #htop, body.L-portrait #portrait,
-body.L-phone #phone, body.L-logo #logo{display:block}
+body.L-phone #phone, body.L-logo #logo, body.L-custom #custom{display:block}
 .k{color:var(--mint)} .t{color:var(--teal)} .d{color:var(--dim)} .g{color:var(--grey)}
 .cursor{display:inline-block;width:.6em;height:1.1em;background:var(--mint);vertical-align:-.18em;animation:blink 1.1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
@@ -98,27 +98,42 @@ body.viz-bars .eq{display:flex}
 #board{padding:72px 110px 90px}
 body.L-board #board{display:flex;flex-direction:column}
 #board .head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:34px}
-#board .clock{--ch:84px}  /* the fetch clock's size everywhere: bigger blocks look crude */
-#board .clock .date{font-size:20px;margin-top:18px}
-#board .clock .sec{font-size:16px}
+:is(#board,#custom) .clock{--ch:84px}  /* the fetch clock's size everywhere: bigger blocks look crude */
+:is(#board,#custom) .clock .date{font-size:20px;margin-top:18px}
+:is(#board,#custom) .clock .sec{font-size:16px}
 #board .who{text-align:right;font-size:17px;line-height:1.6}
 #board .who .title{font-size:24px}
 #board .grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:26px 30px;flex:1;min-height:0}
-#board fieldset{border:1.5px solid var(--dim);padding:10px 22px 16px;min-width:0;min-height:0;overflow:hidden}
-#board legend{padding:0 10px;color:var(--teal);font-size:15px;letter-spacing:.1em}
-#board legend b{color:var(--mint);font-weight:400}
-#board .big{font-size:40px;color:var(--mint);line-height:1.1;margin:4px 0 8px}
-#board .big small{font-size:16px;color:var(--dim)}
-#board .kv{display:flex;justify-content:space-between;gap:14px;white-space:nowrap;font-size:16px}
-#board .kv span:last-child{overflow:hidden;text-overflow:ellipsis}
-#board .kv span:first-child{color:var(--dim)}
-#board .cores{grid-template-columns:repeat(16,1fr);gap:6px 6px;margin-top:14px}
-#board .core .col{height:46px;width:12px}
-#board .spark{font-size:22px}
-#board .disk{font-size:16px;margin-bottom:10px}
-#board .disk .bar{display:block;font-size:15px}
+:is(#board,#custom) fieldset{border:1.5px solid var(--dim);padding:10px 22px 16px;min-width:0;min-height:0;overflow:hidden}
+:is(#board,#custom) legend{padding:0 10px;color:var(--teal);font-size:15px;letter-spacing:.1em}
+:is(#board,#custom) legend b{color:var(--mint);font-weight:400}
+:is(#board,#custom) .big{font-size:40px;color:var(--mint);line-height:1.1;margin:4px 0 8px}
+:is(#board,#custom) .big small{font-size:16px;color:var(--dim)}
+:is(#board,#custom) .kv{display:flex;justify-content:space-between;gap:14px;white-space:nowrap;font-size:16px}
+:is(#board,#custom) .kv span:last-child{overflow:hidden;text-overflow:ellipsis}
+:is(#board,#custom) .kv span:first-child{color:var(--dim)}
+:is(#board,#custom) .cores{grid-template-columns:repeat(16,1fr);gap:6px 6px;margin-top:14px}
+:is(#board,#custom) .core .col{height:46px;width:12px}
+:is(#board,#custom) .spark{font-size:22px}
+:is(#board,#custom) .disk{font-size:16px;margin-bottom:10px}
+:is(#board,#custom) .disk .bar{display:block;font-size:15px}
 #board .now{max-width:640px;text-align:right;margin-top:8px}
 #board .status{left:110px;bottom:40px}
+
+/* ── layout: custom (rows of blocks from termwall.toml "blocks"; your own [block.NAME] too) ── */
+#custom{padding:64px 96px 84px}
+body.L-custom #custom{display:flex;flex-direction:column}
+#custom .cgrid{flex:1;min-height:0;display:flex;flex-direction:column;gap:26px}
+#custom .crow{display:grid;gap:30px;flex:1 1 0;min-height:0}
+#custom .crow.plain{flex:none}  /* a row of only clock, logo, info...: as tall as it needs */
+#custom .blk{min-width:0;min-height:0;overflow:hidden}
+#custom .blk.plain{display:flex;flex-direction:column;justify-content:center}
+#custom .crow > .plain:last-child:not(:first-child){align-items:flex-end;text-align:right}
+#custom .eq{height:100%;min-height:64px;align-self:stretch}
+#custom .now{max-width:100%}
+#custom pre.user{font:inherit;font-size:16px;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--grey)}
+#custom pre.user.err{color:var(--dim)}
+#custom .status{left:96px;bottom:34px}
 
 /* ── layout: minimal (a big clock) ── */
 #minimal{display:none;text-align:center}
@@ -317,6 +332,38 @@ body.fx-noise #fx-noise{display:block;opacity:.07}
     <div class="status" data-p="status" data-sec="status"></div>
   </section>
 
+  <!-- custom: your own grid of the blocks below (termwall.toml "blocks") -->
+  <section class="layout" id="custom">
+    <div class="cgrid"></div>
+    <div class="status" data-p="status" data-sec="status"></div>
+  </section>
+  <template id="blocks">
+    <div class="blk plain" data-block="prompt"><div class="prompt" data-p="prompt" data-sec="prompt"></div></div>
+    <div class="blk plain" data-block="logo"><pre class="logo" data-p="logo" data-sec="logo"></pre></div>
+    <div class="blk plain" data-block="info" data-sec="info">
+      <div class="title" data-p="title"></div><div class="sep" data-p="sep"></div><div data-p="rows"></div></div>
+    <div class="blk plain" data-block="clock">
+      <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div></div></div>
+    <div class="blk plain" data-block="music"><div class="now" data-p="now" data-sec="music"></div></div>
+    <div class="blk plain" data-block="sound"><div class="eq" data-eq data-sec="sound"></div></div>
+    <div class="blk plain" data-block="swatches"><div class="swatches" data-p="swatches" data-sec="swatches"></div></div>
+    <fieldset class="blk" data-block="cpu" data-sec="cpu"><legend>CPU · <b data-p="cpu-sum">0%</b></legend>
+      <div class="spark" data-p="spark-cpu"></div>
+      <div class="kv" style="margin-top:12px"><span>model</span><span data-p="cpu-model"></span></div></fieldset>
+    <fieldset class="blk" data-block="cores" data-sec="cores"><legend>CORES · <b data-p="core-count">0</b></legend>
+      <div class="cores" data-p="cores"></div></fieldset>
+    <fieldset class="blk" data-block="gpu" data-sec="gpu"><legend>GPU · <b data-p="gpu-sum">-</b></legend>
+      <div class="spark m" data-p="spark-gpu"></div><div data-p="gpu-box"></div></fieldset>
+    <fieldset class="blk" data-block="memory" data-sec="memory"><legend>MEMORY · <b data-p="mem-sum">0%</b></legend>
+      <div data-p="mem-box"></div></fieldset>
+    <fieldset class="blk" data-block="disks" data-sec="disks"><legend>DISKS</legend><div data-p="disk-box"></div></fieldset>
+    <fieldset class="blk" data-block="network" data-sec="network"><legend>NETWORK</legend><div data-p="net-box"></div></fieldset>
+    <fieldset class="blk" data-block="procs" data-sec="procs"><legend>PROCESSES · <b data-p="proc-count">0</b></legend>
+      <table class="proc"><tbody data-p="procs"></tbody></table></fieldset>
+    <!-- your own [block.NAME]: plain text from the server, never HTML -->
+    <fieldset class="blk" data-block="user"><legend data-ub-title></legend><pre class="user" data-ub-text></pre></fieldset>
+  </template>
+
   <!-- minimal: a big clock and one line -->
   <section class="layout" id="minimal">
     <div class="clock" data-clock data-sec="clock"><div class="time"></div><div class="date"></div><div class="sec"></div></div>
@@ -458,7 +505,7 @@ if (SHARE) {  // a tap goes fullscreen; the screen stays on where the browser al
 }
 
 // ── the look: layout, clock, bars (from termwall.json / theme.json through the API) ──
-const LAYOUTS = ["fetch", "board", "minimal", "htop", "portrait", "phone", "logo"];
+const LAYOUTS = ["fetch", "board", "minimal", "htop", "portrait", "phone", "logo", "custom"];
 const ROTATION = ["fetch", "board", "minimal", "htop"];  // "rotate" cycles the landscape ones
 let style = {layout: "fetch", bars: "blocks", rotate: 0, clock: "24h", seconds: true, date: "long", hide: [],
              private: false, font: "cascadia", scale: 1, effects: [], logo: "auto", visualizer: "off", sound_bars: 16}, styleKey = "";
@@ -494,8 +541,51 @@ function applyStyle(st){
   b.classList.toggle("viz-bars", ["bars", "both"].includes(style.visualizer));
   if (!["pulse", "both"].includes(style.visualizer)) vizPulse(0);
   document.documentElement.style.setProperty("--font", FONTS[style.font] || FONTS.cascadia);
+  buildCustom();
   showLayout(); fit(); tick();
   if (last) render(last);
+}
+// ── layout custom: rows of blocks (termwall.toml "blocks", "cpu:2" twice as wide), cloned from the
+// template; put() and tick() fill every copy. Your own [block.NAME] come from /theme as plain text.
+const BLOCK_TPL = {};
+for (const el of document.getElementById("blocks").content.children) BLOCK_TPL[el.dataset.block] = el;
+const DEFAULT_BLOCKS = [["logo", "info", "clock"], ["cpu", "gpu", "memory"], ["disks", "network", "procs"]];
+let blocksKey = "", userBlocks = {};
+function buildCustom(){
+  const rows = Array.isArray(style.blocks) && style.blocks.length ? style.blocks : DEFAULT_BLOCKS;
+  const key = JSON.stringify(rows);
+  if (key === blocksKey) return;
+  blocksKey = key;
+  const grid = document.querySelector("#custom .cgrid");
+  grid.textContent = "";
+  for (const r of rows) {
+    if (!Array.isArray(r) || !r.length) continue;
+    const row = document.createElement("div"), cols = [];
+    row.className = "crow";
+    let plain = true;
+    for (const item of r) {
+      const [name, w] = String(item).split(":");
+      const el = (BLOCK_TPL[name] || BLOCK_TPL.user).cloneNode(true);
+      if (!BLOCK_TPL[name] || name === "user") el.dataset.ub = name;
+      plain = plain && el.classList.contains("plain");
+      cols.push(`${Math.max(1, Math.min(6, Number(w) || 1))}fr`);
+      row.appendChild(el);
+    }
+    row.style.gridTemplateColumns = cols.join(" ");
+    row.classList.toggle("plain", plain);
+    grid.appendChild(row);
+  }
+  drawUserBlocks();
+}
+function drawUserBlocks(){
+  document.querySelectorAll("#custom [data-ub]").forEach(el => {
+    const b = userBlocks[el.dataset.ub], pre = el.querySelector("[data-ub-text]");
+    const title = b ? b.title : el.dataset.ub.toUpperCase(), text = b ? b.text : `no [block.${el.dataset.ub}] in termwall.toml`;
+    const legend = el.querySelector("[data-ub-title]");
+    if (legend.textContent !== title) legend.textContent = title;
+    if (pre.textContent !== text) pre.textContent = text;
+    pre.classList.toggle("err", !b || !!b.error);
+  });
 }
 function currentLayout(){
   // on a phone the screen decides: upright = portrait, sideways = the chosen layout
@@ -1019,7 +1109,10 @@ async function pollTheme(){
     const r = await fetch(withToken(API.replace(/stats$/, "theme")), {cache: "no-store"});
     if (r.status === 403) { onForbidden(); return; }
     const s = await r.json();
-    if (!checkPage(s)) { serverTheme = s.theme; applyTheme(s.theme); applyStyle(s.style); document.body.classList.remove("wait"); }
+    if (!checkPage(s)) {
+      serverTheme = s.theme; applyTheme(s.theme); applyStyle(s.style); document.body.classList.remove("wait");
+      userBlocks = s.blocks || {}; drawUserBlocks();
+    }
   } catch (e) {}
 }
 if (!DEMO) setInterval(pollTheme, 250);
@@ -1029,7 +1122,7 @@ if (!DEMO) setInterval(pollTheme, 250);
 const VIZ_ROWS = 6, VIZ_CH = " ▁▂▃▄▅▆▇█";
 const VIZ = {bands: new Float32Array(64), peak: 0.2, peakT: 0.2, bass: 0, cols: 32, last: 0,
              heard: 0, loud: 0, caps: [], shown: [], frame: 0};
-function vizOn(){ return style.visualizer && style.visualizer !== "off" && ["logo", "fetch"].includes(currentLayout()); }
+function vizOn(){ return style.visualizer && style.visualizer !== "off" && ["logo", "fetch", "custom"].includes(currentLayout()); }
 // n bars from the 64 bands, bass on the left. Hearing is logarithmic, so the low bands get bars of
 // their own and the high ones share; the top dozen are mostly empty in music, so they're left out.
 function vizLevels(n){
@@ -1079,7 +1172,7 @@ function drawViz(){
   const mode = style.visualizer;
   if ((mode === "pulse" || mode === "both") && currentLayout() === "logo") vizPulse(Math.min(1.2, VIZ.bass));
   if (mode !== "bars" && mode !== "both") return;
-  if (currentLayout() === "fetch") return;  // eqFrame draws it, smoothed
+  if (currentLayout() === "fetch" || currentLayout() === "custom") return;  // eqFrame draws it, smoothed
   const out = document.querySelector('#logo pre.viz');
   if (!out) return;
   const cols = Math.max(8, VIZ.cols), colors = vizColors(), n = Math.max(1, colors.length);
@@ -1138,7 +1231,7 @@ function eqFrame(now){
   if (PAUSED) return;  // setPaused(false) starts the loop again
   requestAnimationFrame(eqFrame);
   const dt = Math.min(0.1, (now - (VIZ.frame || now)) / 1000); VIZ.frame = now;
-  if (!dt || !vizOn() || currentLayout() !== "fetch" || !["bars", "both"].includes(style.visualizer)) return;
+  if (!dt || !vizOn() || !["fetch", "custom"].includes(currentLayout()) || !["bars", "both"].includes(style.visualizer)) return;
   const n = Math.max(4, Math.min(32, Number(style.sound_bars) || 16)), t = eqTargets(n);
   if (VIZ.shown.length !== n) VIZ.shown = new Array(n).fill(0);
   const up = 1 - Math.exp(-dt * 28), down = 1 - Math.exp(-dt * 9);

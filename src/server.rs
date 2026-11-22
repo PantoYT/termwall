@@ -100,6 +100,11 @@ pub fn make_handler(source: Arc<dyn StatsSource>, token: String, paths: Arc<Path
                 body.insert("theme".into(), palette(&st));
                 body.insert("style".into(), Value::Object(st));
                 body.insert("page".into(), page_version(&paths));
+                // your own blocks (layout custom); only here, on 127.0.0.1: share doesn't send them
+                let own = crate::blocks::outputs();
+                if !own.is_empty() {
+                    body.insert("blocks".into(), Value::Object(own));
+                }
                 ok.fetch_add(1, Ordering::Relaxed);
                 json(200, &body)
             }
@@ -179,6 +184,7 @@ pub fn start(paths: &Paths) -> Result<(std::net::TcpListener, http::Handler), St
         let (source, shared) = (source.clone(), shared.clone());
         std::thread::spawn(move || share::run_share(source, shared)); // termwall share
     }
+    crate::blocks::start(shared.clone()); // your own blocks (layout custom)
     Ok((listener, make_handler(source, token, shared)))
 }
 

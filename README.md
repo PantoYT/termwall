@@ -101,7 +101,7 @@ A `termwall.json` from termwall 1.1 is carried over on the first start and renam
 
 | setting | values | default |
 |---|---|---|
-| `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side), `phone` (big gauges for a phone; `termwall share` picks it when the phone is upright), `logo` (the logo as big as the screen, with user, system and the palette under it) | `fetch` |
+| `layout` | `fetch` (fastfetch), `board` (boxes, like btop), `htop` (meters and a big process table), `minimal` (the clock and one line), `portrait` (for a monitor on its side), `phone` (big gauges for a phone; `termwall share` picks it when the phone is upright), `logo` (the logo as big as the screen, with user, system and the palette under it), `custom` (your own grid of blocks, see [Your own layout](#your-own-layout)) | `fetch` |
 | `theme` | `auto`, `logo` (the logo's colors over everything: a picture's own with `logo = "image"`, else the shown distro's, also on Windows; `distro` is the same), `mint`, `catppuccin`, `gruvbox`, `nord`, `dracula`, `tokyo-night`, `rose-pine`, `everforest`, `kanagawa`, `solarized`, `one-dark`, `monokai`, `amber`, `phosphor` (`termwall --themes`, or `termwall --theme nord`) | `auto`: livery's palette if it runs, else the logo's colors, else mint |
 | `colors` | your own six colors: uncomment the `colors = { bg = "#…", … }` line in `termwall.toml` | |
 | `bars` | `blocks`, `shade`, `dots`, `line` | `blocks` |
@@ -164,6 +164,47 @@ can have its own look.
 
 `TERMWALL_THEME` and `TERMWALL_STYLE` (environment variables) point the server at other
 files. The port, `127.0.0.1:9002`, is fixed.
+
+## Your own layout
+
+`layout = "custom"` puts blocks in rows, as `blocks` in `termwall.toml` says, top to bottom:
+
+```toml
+layout = "custom"
+blocks = [["logo", "info", "clock"], ["cpu:2", "memory"], ["disks", "network", "procs"]]
+```
+
+The blocks: `prompt`, `logo`, `info` (fastfetch's lines), `clock`, `music`, `sound` (the
+visualizer's bars), `swatches`, and the boxes `cpu`, `cores`, `gpu`, `memory`, `disks`,
+`network`, `procs`. `cpu:2` is twice as wide as the others in its row (up to 6). A row of only
+clock, logo, info, music, sound, swatches or prompt is as tall as it needs; the other rows share
+the rest. `termwall settings` has an editor for it (look, blocks): arrows move, shift and an
+arrow carries a block, `+`/`-` its width, `a` adds one, `n` starts a row, and the wallpaper
+follows each change. From the command line: `termwall --style blocks "logo,info,clock /
+cpu:2,memory"`. `[screen.N]` can give each monitor its own `blocks`.
+
+**Your own blocks (experimental, at your own risk).** `[block.NAME]` tables at the end of
+`termwall.toml` add blocks of plain text, used in `blocks` by their name:
+
+```toml
+experimental_commands = true   # only needed for command blocks
+
+[block.notes]
+file = "notes.txt"             # next to termwall.toml, read every 5 seconds
+
+[block.uptime]
+title = "UPTIME"
+command = "uptime"             # its output, every 60 seconds unless every = N
+every = 60
+```
+
+Each has a `title` and one of `text`, `file` or `command`. The page shows the output as text
+(40 lines; colors and HTML are not interpreted). A command runs through the shell as you, with
+your rights, every `every` seconds, and is stopped after 10 seconds; nothing runs unless
+`experimental_commands = true` is in `termwall.toml` itself (a switcher's `theme.json` can't
+define blocks or switch commands on). Don't copy commands from anyone you don't trust.
+`termwall share` doesn't send your blocks to the phone. This part may change between
+versions.
 
 ## Several monitors
 

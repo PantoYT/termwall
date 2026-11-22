@@ -93,6 +93,8 @@ pub struct Facts {
     pub visualizer_on: bool,
     pub config_problems: Vec<String>,
     pub livery_overrides: Map,
+    /// your own command blocks, when experimental_commands is on
+    pub command_blocks: Option<Vec<String>>,
     pub windows: bool,
 }
 
@@ -307,6 +309,19 @@ pub fn judge(x: &Facts) -> Vec<Finding> {
             Level::Note,
             format!("livery's pack sets {} and wins over termwall.toml", list.join(", ")),
             Some("livery termwall look PACK none drops it".into()),
+        ));
+    }
+
+    if let Some(names) = &x.command_blocks {
+        out.push(f(
+            "settings",
+            Level::Note,
+            if names.is_empty() {
+                "experimental_commands is on, no command blocks yet".to_string()
+            } else {
+                format!("experimental_commands is on: {} run as you ({})", names.len(), names.join(", "))
+            },
+            Some("experimental_commands = false in termwall.toml stops them".into()),
         ));
     }
 
@@ -582,6 +597,13 @@ pub fn gather(paths: &Paths) -> Facts {
         we_audio: we.as_deref().and_then(we_audio_device),
         visualizer_on,
         config_problems: style::check_config(&paths.style_file),
+        command_blocks: {
+            let own = style::load_config(&paths.style_file).0;
+            crate::blocks::commands_on(own.as_ref()).then(|| {
+                let defs = crate::blocks::defs(own.as_ref()).0;
+                defs.into_iter().filter(|d| matches!(d.src, crate::blocks::Src::Command(_))).map(|d| d.name).collect()
+            })
+        },
         livery_overrides: style::theme_overrides(&paths.style_file, &paths.theme_file),
         windows: cfg!(windows),
         ..Facts::default()

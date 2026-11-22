@@ -4,6 +4,7 @@
 //! second, so a request never blocks on the operating system or nvidia-smi. The page
 //! (index.html) is the same one Wallpaper Engine and Lively show.
 
+mod blocks;
 mod doctor;
 mod gpu;
 mod host;
