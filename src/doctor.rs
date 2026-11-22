@@ -24,8 +24,12 @@ pub struct Proc {
 }
 
 impl Proc {
+    /// The exe's name without ".exe", lowercase; either separator (a Windows path read on Linux,
+    /// in tests).
     fn stem(&self) -> String {
-        self.exe.as_ref().and_then(|e| e.file_stem()).map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default()
+        let exe = self.exe.as_ref().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let name = exe.rsplit(['\\', '/']).next().unwrap_or("");
+        name.strip_suffix(".exe").unwrap_or(name).to_string()
     }
 
     /// termwall_api.py on its command line (the Python server, 2.x).
@@ -643,7 +647,8 @@ mod tests {
     fn proc(pid: u32, exe: &str, args: &[&str]) -> Proc {
         let mut cmd = vec![exe.to_string()];
         cmd.extend(args.iter().map(|a| a.to_string()));
-        Proc { pid, name: Path::new(exe).file_name().unwrap().to_string_lossy().into(), exe: Some(exe.into()), cmd }
+        let name = exe.rsplit(['\\', '/']).next().unwrap().to_string();
+        Proc { pid, name, exe: Some(exe.into()), cmd }
     }
 
     fn fails(x: &Facts) -> Vec<String> {
